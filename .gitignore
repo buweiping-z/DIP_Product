@@ -1,0 +1,11 @@
+bin/
+obj/
+wwwroot/
+node_modules/
+dist/
+.vs/
+*.user
+*.suo
+.DS_Store
+*.log
+
