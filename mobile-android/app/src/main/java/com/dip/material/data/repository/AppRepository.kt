@@ -17,8 +17,8 @@ class AppRepository(val context: Context) {
     // Parts & Locations
     suspend fun getParts() = api.getParts()
     suspend fun getLocations() = api.getLocations()
-    suspend fun searchParts(partNo: String) = api.getParts(partNo = partNo)
-    suspend fun searchLocations(locationCode: String) = api.getLocations(locationCode = locationCode)
+    suspend fun searchParts(partNo: String) = api.getParts(partNo = partNo, pageSize = 5)
+    suspend fun searchLocations(locationCode: String) = api.getLocations(locationCode = locationCode, pageSize = 5)
     suspend fun getAvailableInventory(partId: Int) = api.getAvailableInventory(partId)
 
     // Prep

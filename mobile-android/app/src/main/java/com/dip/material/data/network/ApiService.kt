@@ -22,13 +22,13 @@ interface ApiService {
     @GET("api/v1/parts")
     suspend fun getParts(
         @Query("part_no") partNo: String? = null,
-        @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 5
+        @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 200
     ): ApiResponse<PageResult<PartItem>>
 
     @GET("api/v1/locations")
     suspend fun getLocations(
         @Query("location_code") locationCode: String? = null,
-        @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 5
+        @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 200
     ): ApiResponse<PageResult<LocationItem>>
 
     @GET("api/v1/inventory/available/{partId}")
