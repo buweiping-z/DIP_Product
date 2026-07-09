@@ -131,7 +131,7 @@ public class PrepService
                 part_no = r.PartNo, required_qty = r.RequiredQty, available_qty = r.AvailableQty, status = r.Status }) };
     }
 
-    public async Task ScanPrepAsync(long prepId, string barcode, long? detailId, long operatorId)
+    public async Task<object> ScanPrepAsync(long prepId, string barcode, long? detailId, long operatorId)
     {
         var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == prepId);
         if (prep == null || prep.Status != 1) throw AppException.Business("备料单状态不允许操作");
@@ -141,29 +141,36 @@ public class PrepService
             detail = await _db.PrepDetails.FirstOrDefaultAsync(d => d.Id == detailId.Value && d.PrepOrderId == prepId);
         if (detail == null)
             detail = await _db.PrepDetails.FirstOrDefaultAsync(d => d.PrepOrderId == prepId && d.PartNo.Contains(barcode));
-        if (detail == null) throw AppException.NotFound("未匹配到备料明细");
+        if (detail == null) return new { matched = false, message = "未匹配到备料明细" };
 
         var remaining = detail.RequiredQty - detail.ActualQty;
-        if (remaining <= 0) throw AppException.Business("该物料已备齐");
+        if (remaining <= 0) return new { matched = false, message = "该物料已备齐" };
 
         var invSvc = new InventoryService(_db);
         var lots = await invSvc.GetFifoLotsAsync(detail.PartId, remaining);
         if (lots.Count == 0) throw AppException.Business("可用库存不足");
 
-        var firstLot = lots[0];
-        var scanQty = Math.Min(firstLot.Quantity, remaining);
-        var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == firstLot.InventoryId);
-        var locId = inv?.LocationId ?? 0;
-
-        _db.PrepScanRecords.Add(new PrepScanRecord
+        // 一次冻结全部剩余数量
+        var totalFrozen = 0m;
+        foreach (var lot in lots)
         {
-            PrepDetailId = detail.Id, SourceLocationId = locId,
-            BatchNo = firstLot.BatchNo, Quantity = scanQty,
-            ScannedBarcode = barcode, OperatorId = operatorId
-        });
+            if (totalFrozen >= remaining) break;
+            var qty = Math.Min(lot.Quantity, remaining - totalFrozen);
+            var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == lot.InventoryId);
+            var locId = inv?.LocationId ?? 0;
 
-        await invSvc.FreezeCoreAsync(detail.PartId, locId, scanQty, operatorId, "PrepFreeze", prepId);
-        detail.ActualQty += scanQty;
+            _db.PrepScanRecords.Add(new PrepScanRecord
+            {
+                PrepDetailId = detail.Id, SourceLocationId = locId,
+                BatchNo = lot.BatchNo, Quantity = qty,
+                ScannedBarcode = barcode, OperatorId = operatorId
+            });
+
+            await invSvc.FreezeCoreAsync(detail.PartId, locId, qty, operatorId, "PrepFreeze", prepId);
+            totalFrozen += qty;
+        }
+
+        detail.ActualQty += totalFrozen;
         if (detail.ActualQty >= detail.RequiredQty) detail.Status = 2;
         await _db.SaveChangesAsync();
 
@@ -174,6 +181,8 @@ public class PrepService
             prep.CompletedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
         }
+
+        return new { matched = true, part_no = detail.PartNo, actual_qty = detail.ActualQty, required_qty = detail.RequiredQty, status = detail.Status, all_done = remainingDetails == 0 };
     }
 
     public async Task<object> GetRefillsAsync(string? partNo = null, string? locationCode = null,

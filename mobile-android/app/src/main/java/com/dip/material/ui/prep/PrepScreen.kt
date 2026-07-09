@@ -20,66 +20,79 @@ import com.dip.material.ui.components.QrCodeScanner
 @Composable
 fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    var barcode by remember { mutableStateOf("") }
+    var inputBarcode by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
 
+    // 全部完成后自动返回
+    LaunchedEffect(state.allDone) {
+        if (state.allDone) {
+            kotlinx.coroutines.delay(1500)
+            onBack()
+        }
+    }
+
+    // 扫码回调：自动处理，不清空 scanner
+    fun onScanned(code: String) {
+        viewModel.scanItem(code)
+        inputBarcode = code
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text(if (state.selectedOrder != null) "备料扫描" else "备料管理") }, navigationIcon = { IconButton(onClick = {
-            if (state.selectedOrder != null) viewModel.clearSelection() else onBack()
-        }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
+        topBar = { TopAppBar(title = { Text(if (state.selectedOrder != null) "备料扫描" else "备料管理") },
+            navigationIcon = { IconButton(onClick = {
+                if (state.selectedOrder != null) viewModel.clearSelection() else onBack()
+            }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // Half-screen scanner
-            if (showScanner) {
-                Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
-                    QrCodeScanner(onBarcodeScanned = { code ->
-                        viewModel.scanItem(code)
-                        barcode = code
-                        showScanner = false
-                    }, isActive = showScanner)
-                    IconButton(onClick = { showScanner = false }, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                        Text("✕", color = Color.White, fontSize = 20.sp)
+            if (state.selectedOrder != null) {
+                // Half-screen scanner (持续显示)
+                if (showScanner) {
+                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
+                        QrCodeScanner(onBarcodeScanned = { onScanned(it) }, isActive = showScanner)
+                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // 手动退出扫描
+                            Button(onClick = { showScanner = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
+                        }
                     }
                 }
-            }
 
-            if (state.selectedOrder != null) {
-                val order = state.selectedOrder!!
-                LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                        Text("备料单: ${order.orderNo}", style = MaterialTheme.typography.titleMedium)
-                        Text("产品: ${order.productName}")
-                    } } }
-                    state.scanMsg?.let { item { Text(it, color = if (it.contains("成功")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
-                    item {
-                        OutlinedTextField(value = barcode, onValueChange = { barcode = it },
-                            label = { Text("扫物料条码") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                            trailingIcon = { IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, "扫码") } })
-                        Button(onClick = { if (barcode.isNotBlank()) { viewModel.scanItem(barcode.trim()); barcode = "" } },
-                            enabled = barcode.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("扫描") }
-                    }
-                    order.details?.let { details ->
-                        items(details) { d ->
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(d.partNo, style = MaterialTheme.typography.titleSmall)
-                                        Surface(shape = MaterialTheme.shapes.small,
-                                            color = if (d.status == 2) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
-                                            Text(if (d.status == 2) "完成" else "待备", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                                fontSize = MaterialTheme.typography.labelSmall.fontSize)
+                // 手动输入区
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it },
+                        label = { Text("手动输入料号") }, modifier = Modifier.weight(1f), singleLine = true)
+                    Button(onClick = { if (inputBarcode.isNotBlank()) { viewModel.scanItem(inputBarcode.trim()); inputBarcode = "" } },
+                        enabled = inputBarcode.isNotBlank()) { Text("确认") }
+                    IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, if (showScanner) "关闭" else "扫码") }
+                }
+
+                if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+
+                state.scanMsg?.let {
+                    val isError = it.contains("未匹配") || it.contains("不足")
+                    Text(it, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp), fontSize = 14.sp)
+                }
+
+                // 备料明细
+                state.selectedOrder?.let { order ->
+                    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        item { Text("备料单: ${order.orderNo} | 产品: ${order.productName}", style = MaterialTheme.typography.titleSmall) }
+                        order.details?.let { details ->
+                            items(details) { d ->
+                                Card(Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (d.status == 2) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface)) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(d.partNo, style = MaterialTheme.typography.titleSmall)
+                                            Text(if (d.status == 2) "✓" else "${d.actualQty.toInt()}/${d.totalRequiredQty.toInt()}",
+                                                color = if (d.status == 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                                         }
-                                    }
-                                    Text("备料: ${d.actualQty.toInt()} / ${d.totalRequiredQty.toInt()}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = if (d.actualQty >= d.totalRequiredQty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                                    // 库存库位
-                                    d.stocks?.takeIf { it.isNotEmpty() }?.let { stocks ->
-                                        Text("库存库位:", style = MaterialTheme.typography.labelSmall)
-                                        stocks.forEach { s ->
-                                            Text("  ${s.locationCode}: 可用 ${s.availableQty.toInt()}",
-                                                style = MaterialTheme.typography.bodySmall)
+                                        d.stocks?.takeIf { it.isNotEmpty() }?.let { stocks ->
+                                            Text(stocks.joinToString(" | ") { "${it.locationCode}:${it.availableQty.toInt()}" },
+                                                style = MaterialTheme.typography.bodySmall, fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -88,6 +101,7 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                     }
                 }
             } else {
+                // 备料单列表
                 LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("待备料单", style = MaterialTheme.typography.titleMedium) }
                     if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }

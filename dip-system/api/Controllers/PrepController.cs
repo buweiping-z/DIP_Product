@@ -43,8 +43,8 @@ public class PrepController : ControllerBase
     public async Task<IActionResult> ScanPrep(long id, [FromBody] ScanPrepRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _svc.ScanPrepAsync(id, req.Barcode, req.DetailId, userId);
-        return Ok(ApiResponse.Ok(null, "备料扫描完成"));
+        var result = await _svc.ScanPrepAsync(id, req.Barcode, req.DetailId, userId);
+        return Ok(ApiResponse.Ok(result, "备料扫描完成"));
     }
 
     [HttpPost("{id}/cancel")]
