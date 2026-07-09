@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { showToast } from './toast';
 const api = axios.create({ baseURL: '/api/v1', timeout: 30000 });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -15,12 +16,7 @@ api.interceptors.response.use(
       const displayMsg = (body.code === 401 || body.code === 403)
         ? '当前用户无法操作'
         : msg;
-      // 避免重复弹窗，使用简单的 alert
-      if (!(window as any).__apiErrorShown) {
-        (window as any).__apiErrorShown = true;
-        alert(displayMsg);
-        setTimeout(() => { (window as any).__apiErrorShown = false; }, 1000);
-      }
+      showToast(displayMsg, 'error');
     }
     return body;
   },
