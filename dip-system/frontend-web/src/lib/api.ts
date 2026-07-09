@@ -12,15 +12,13 @@ api.interceptors.response.use(
     // 全局业务错误拦截：非 0 code 且非 200 HTTP 状态显示提示
     if (body && body.code !== 0 && body.code !== undefined) {
       const msg = body.message || '操作失败';
+      const isLogin = res.config.url?.includes('/auth/login');
+      // 登录接口保留原始消息，不转换、不弹 toast
+      if (isLogin) throw new Error(msg);
       const displayMsg = (body.code === 401 || body.code === 403)
         ? '当前用户无法操作'
         : msg;
-      // 登录接口不弹 toast（页面有自己的内联错误提示）
-      const isLogin = res.config.url?.includes('/auth/login');
-      if (!isLogin) {
-        showToast(displayMsg, 'error');
-      }
-      // 抛出错误中断调用方的 success 路径
+      showToast(displayMsg, 'error');
       throw new Error(displayMsg);
     }
     return body;
