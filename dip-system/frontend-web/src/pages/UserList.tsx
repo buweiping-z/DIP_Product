@@ -7,7 +7,7 @@ export default function UserList() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
   const [keyword, setKeyword] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isManager, setIsManager] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ username: '', real_name: '', role_id: 0, password: '' });
@@ -27,7 +27,8 @@ export default function UserList() {
     try {
       const res = await api.get('/auth/me');
       if (res.code === 0 && res.data) {
-        setIsAdmin((res.data.role_code || '').toLowerCase() === 'admin');
+        const role = (res.data.role_code || '').toLowerCase();
+        setIsManager(role === 'admin' || role === 'leader');
       }
     } catch {}
   };
@@ -115,7 +116,7 @@ export default function UserList() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">用户管理</h1>
         <div className="flex gap-2">
-          {isAdmin && (
+          {isManager && (
             <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建用户</button>
           )}
           <button onClick={() => { setPwdForm({ old_password: '', new_password: '', confirm_password: '' }); setShowPwdDialog(true); }}
@@ -142,7 +143,7 @@ export default function UserList() {
             <th className="p-3">ID</th><th className="p-3">用户名</th><th className="p-3">姓名</th>
             <th className="p-3">角色</th><th className="p-3">状态</th>
             <th className="p-3">创建时间</th>
-            {isAdmin && <th className="p-3 w-48">操作</th>}
+            {isManager && <th className="p-3 w-48">操作</th>}
           </tr></thead>
           <tbody>{data.map(u => (
             <tr key={u.id} className="border-t hover:bg-gray-50 text-sm">
@@ -156,7 +157,7 @@ export default function UserList() {
                 </span>
               </td>
               <td className="p-3 text-xs text-gray-500">{u.created_at?.slice(0, 19)}</td>
-              {isAdmin && (
+              {isManager && (
                 <td className="p-3 space-x-1 whitespace-nowrap">
                   <button onClick={() => openEdit(u)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
                   <button onClick={() => handleResetPwd(u.id)} className="text-orange-500 hover:text-orange-700 text-sm">重置密码</button>

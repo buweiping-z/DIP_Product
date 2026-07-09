@@ -17,7 +17,9 @@ public class UserController : ControllerBase
 
     public UserController(UserService svc, AppDbContext db) { _svc = svc; _db = db; }
 
-    private async Task EnsureAdminAsync()
+    private static readonly HashSet<string> ManagerRoles = new(StringComparer.OrdinalIgnoreCase) { "admin", "leader" };
+
+    private async Task EnsureManagerAsync()
     {
         var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userIdStr) || !long.TryParse(userIdStr, out var userId))
@@ -25,7 +27,7 @@ public class UserController : ControllerBase
 
         // 先查 JWT claim
         var jwtRole = User.FindFirstValue("role") ?? "";
-        if (jwtRole.Equals("admin", StringComparison.OrdinalIgnoreCase)) return;
+        if (ManagerRoles.Contains(jwtRole)) return;
 
         // JWT 不可信则查数据库
         var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == userId);
@@ -36,10 +38,8 @@ public class UserController : ControllerBase
         if (role == null)
             throw AppException.Business($"角色不存在: roleId={user.RoleId}, userId={userId}");
 
-        if (!role.RoleCode.Equals("admin", StringComparison.OrdinalIgnoreCase))
-            throw AppException.Business($"仅管理员可操作，当前角色: {role.RoleCode}");
-
-        // 是 admin，无需额外操作
+        if (!ManagerRoles.Contains(role.RoleCode))
+            throw AppException.Business($"仅管理员/班组长可操作，当前角色: {role.RoleCode}");
     }
 
     [HttpGet]
@@ -60,7 +60,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
     {
-        await EnsureAdminAsync();
+        await EnsureManagerAsync();
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(req.Username, req.RealName, req.RoleId, req.Password), "创建成功"));
     }
 
@@ -68,7 +68,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Update(long id, [FromBody] UpdateUserRequest req)
     {
-        await EnsureAdminAsync();
+        await EnsureManagerAsync();
         return Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.RealName, req.RoleId, req.Status, req.Password), "更新成功"));
     }
 
@@ -76,7 +76,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Delete(long id)
     {
-        await EnsureAdminAsync();
+        await EnsureManagerAsync();
         await _svc.DeleteAsync(id);
         return Ok(ApiResponse.Ok(null, "删除成功"));
     }
@@ -85,7 +85,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> ResetPassword(long id, [FromBody] ResetPasswordRequest req)
     {
-        await EnsureAdminAsync();
+        await EnsureManagerAsync();
         await _svc.ResetPasswordAsync(id, req.NewPassword);
         return Ok(ApiResponse.Ok(null, "密码已重置"));
     }

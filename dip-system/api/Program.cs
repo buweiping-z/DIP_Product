@@ -92,6 +92,8 @@ using (var scope = app.Services.CreateScope())
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
     if (!db.Roles.Any(r => r.RoleCode == "operator"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "operator", RoleName = "操作员", Status = 1 });
+    if (!db.Roles.Any(r => r.RoleCode == "leader"))
+        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "leader", RoleName = "班组长", Status = 1 });
     db.SaveChanges();
 
     var adminRoleId = db.Roles.First(r => r.RoleCode == "admin").Id;
