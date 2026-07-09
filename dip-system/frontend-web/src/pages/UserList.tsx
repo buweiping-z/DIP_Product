@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
+import { showToast } from '../lib/toast';
 
 export default function UserList() {
   const [data, setData] = useState<any[]>([]);
@@ -67,48 +68,37 @@ export default function UserList() {
       if (editId) {
         const payload: any = { real_name: form.real_name, role_id: form.role_id, status: 1 };
         if (form.password) payload.password = form.password;
-        const res = await api.put(`/users/${editId}`, payload);
-        if (res.code !== 0) { alert(res.message || '更新失败'); return; }
-        setMsg('用户更新成功');
+        await api.put(`/users/${editId}`, payload);
+        showToast('用户更新成功', 'success');
       } else {
-        const res = await api.post('/users', form);
-        if (res.code !== 0) { alert(res.message || '创建失败'); return; }
-        setMsg('用户创建成功');
+        await api.post('/users', form);
+        showToast('用户创建成功', 'success');
       }
       setShowDialog(false);
       fetchData();
-    } catch (err: any) { alert(err.response?.data?.message || err.message || '操作失败'); }
+    } catch {}
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm('确认删除此用户？')) return;
-    try {
-      const res = await api.delete(`/users/${id}`);
-      if (res.code !== 0) { alert(res.message || '删除失败'); return; }
-      fetchData();
-    } catch (err: any) { alert(err.response?.data?.message || err.message || '删除失败'); }
+    try { await api.delete(`/users/${id}`); fetchData(); } catch {}
   };
 
   const handleResetPwd = async (id: number) => {
     const pwd = prompt('请输入新密码（至少4位）：');
     if (!pwd) return;
     if (pwd.length < 4) return alert('密码至少4位');
-    try {
-      const res = await api.put(`/users/${id}/reset-password`, { new_password: pwd });
-      if (res.code !== 0) { alert(res.message || '重置失败'); return; }
-      setMsg('密码已重置');
-    } catch (err: any) { alert(err.response?.data?.message || err.message || '重置失败'); }
+    try { await api.put(`/users/${id}/reset-password`, { new_password: pwd }); showToast('密码已重置', 'success'); } catch {}
   };
 
   const handleChangePwd = async () => {
     if (pwdForm.new_password !== pwdForm.confirm_password) return alert('两次密码不一致');
     if (pwdForm.new_password.length < 4) return alert('新密码至少4位');
     try {
-      const res = await api.put('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password });
-      if (res.code !== 0) { alert(res.message || '修改失败'); return; }
-      setMsg('密码修改成功');
+      await api.put('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password });
+      showToast('密码修改成功', 'success');
       setShowPwdDialog(false);
-    } catch (err: any) { alert(err.response?.data?.message || err.message || '修改失败'); }
+    } catch {}
   };
 
   return (
