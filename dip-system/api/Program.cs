@@ -70,6 +70,7 @@ builder.Services.AddScoped<UserService>();
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<AppExceptionFilter>();
+    options.Filters.Add<RequireManagerFilter>();
 })
 .AddJsonOptions(options =>
 {
