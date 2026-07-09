@@ -15,7 +15,11 @@ api.interceptors.response.use(
       const displayMsg = (body.code === 401 || body.code === 403)
         ? '当前用户无法操作'
         : msg;
-      showToast(displayMsg, 'error');
+      // 登录接口不弹 toast（页面有自己的内联错误提示）
+      const isLogin = res.config.url?.includes('/auth/login');
+      if (!isLogin) {
+        showToast(displayMsg, 'error');
+      }
       // 抛出错误中断调用方的 success 路径
       throw new Error(displayMsg);
     }
