@@ -80,7 +80,15 @@ data class PrepDetailItem(
     val id: Int, @SerializedName("part_id") val partId: Int,
     @SerializedName("part_no") val partNo: String,
     @SerializedName("required_qty") val requiredQty: Double,
-    @SerializedName("actual_qty") val actualQty: Double, val status: Int
+    @SerializedName("total_required_qty") val totalRequiredQty: Double = 0.0,
+    @SerializedName("actual_qty") val actualQty: Double, val status: Int,
+    val stocks: List<PartStock>? = null
+)
+
+data class PartStock(
+    @SerializedName("location_code") val locationCode: String,
+    @SerializedName("location_id") val locationId: Int,
+    @SerializedName("available_qty") val availableQty: Double
 )
 data class PrepScanRequest(val barcode: String, @SerializedName("prep_detail_id") val prepDetailId: Int? = null)
 data class PendingItem(
