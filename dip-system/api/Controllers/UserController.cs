@@ -69,7 +69,7 @@ public class UserController : ControllerBase
     public async Task<IActionResult> Update(long id, [FromBody] UpdateUserRequest req)
     {
         await EnsureAdminAsync();
-        return Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.RealName, req.RoleId, req.Status), "更新成功"));
+        return Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.RealName, req.RoleId, req.Status, req.Password), "更新成功"));
     }
 
     [HttpDelete("{id}")]
@@ -113,6 +113,7 @@ public class UpdateUserRequest
     public string? RealName { get; set; }
     public long? RoleId { get; set; }
     public int? Status { get; set; }
+    public string? Password { get; set; }
 }
 
 public class ResetPasswordRequest

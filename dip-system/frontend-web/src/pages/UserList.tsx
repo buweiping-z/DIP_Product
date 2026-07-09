@@ -10,8 +10,6 @@ export default function UserList() {
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ username: '', real_name: '', role_id: 0, password: '' });
-  const [showPwdDialog, setShowPwdDialog] = useState(false);
-  const [pwdForm, setPwdForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
 
   const loadRoles = async () => {
     try {
@@ -53,7 +51,9 @@ export default function UserList() {
     if (!form.username || (!editId && !form.password)) return alert('请填写必填项');
     try {
       if (editId) {
-        const res = await api.put(`/users/${editId}`, { real_name: form.real_name, role_id: form.role_id, status: 1 });
+        const payload: any = { real_name: form.real_name, role_id: form.role_id, status: 1 };
+        if (form.password) payload.password = form.password;
+        const res = await api.put(`/users/${editId}`, payload);
         if (res.code !== 0) { alert(res.message || '更新失败'); return; }
         setMsg('用户更新成功');
       } else {
@@ -86,25 +86,12 @@ export default function UserList() {
     } catch (err: any) { alert(err.response?.data?.message || err.message || '重置失败'); }
   };
 
-  const handleChangePwd = async () => {
-    if (pwdForm.new_password !== pwdForm.confirm_password) return alert('两次密码不一致');
-    if (pwdForm.new_password.length < 4) return alert('新密码至少4位');
-    try {
-      const res = await api.put('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password });
-      if (res.code !== 0) { alert(res.message || '修改失败'); return; }
-      setMsg('密码修改成功');
-      setShowPwdDialog(false);
-    } catch (err: any) { alert(err.response?.data?.message || err.message || '修改失败'); }
-  };
-
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">用户管理</h1>
         <div className="flex gap-2">
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建用户</button>
-          <button onClick={() => { setPwdForm({ old_password: '', new_password: '', confirm_password: '' }); setShowPwdDialog(true); }}
-            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">修改密码</button>
         </div>
       </div>
 
@@ -173,13 +160,12 @@ export default function UserList() {
                   {roles.map((r: any) => <option key={r.id} value={r.id}>{r.role_name} ({r.role_code})</option>)}
                 </select>
               </div>
-              {!editId && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">密码</label>
-                  <input type="password" className="w-full border p-2 rounded" value={form.password}
-                    onChange={e => setForm({ ...form, password: e.target.value })} />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium mb-1">密码{editId ? '（留空不修改）' : ''}</label>
+                <input type="password" className="w-full border p-2 rounded" value={form.password}
+                  placeholder={editId ? '留空则不修改密码' : ''}
+                  onChange={e => setForm({ ...form, password: e.target.value })} />
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setShowDialog(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
@@ -191,35 +177,6 @@ export default function UserList() {
         </div>
       )}
 
-      {/* Change Password Dialog */}
-      {showPwdDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[400px]">
-            <h2 className="text-xl font-bold mb-4">修改密码</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">原密码</label>
-                <input type="password" className="w-full border p-2 rounded" value={pwdForm.old_password}
-                  onChange={e => setPwdForm({ ...pwdForm, old_password: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">新密码</label>
-                <input type="password" className="w-full border p-2 rounded" value={pwdForm.new_password}
-                  onChange={e => setPwdForm({ ...pwdForm, new_password: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">确认新密码</label>
-                <input type="password" className="w-full border p-2 rounded" value={pwdForm.confirm_password}
-                  onChange={e => setPwdForm({ ...pwdForm, confirm_password: e.target.value })} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowPwdDialog(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
-              <button onClick={handleChangePwd} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认修改</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

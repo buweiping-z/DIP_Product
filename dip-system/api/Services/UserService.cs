@@ -60,7 +60,7 @@ public class UserService
         return new { id = user.Id, username = user.Username, real_name = user.RealName, role_id = user.RoleId, status = user.Status };
     }
 
-    public async Task<object> UpdateAsync(long id, string? realName, long? roleId, int? status)
+    public async Task<object> UpdateAsync(long id, string? realName, long? roleId, int? status, string? password = null)
     {
         var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted);
         if (user == null) throw AppException.NotFound("用户不存在");
@@ -73,6 +73,11 @@ public class UserService
             user.RoleId = roleId.Value;
         }
         if (status.HasValue) user.Status = status.Value;
+        if (!string.IsNullOrWhiteSpace(password))
+        {
+            if (password.Length < 4) throw AppException.Business("密码至少4位");
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+        }
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
