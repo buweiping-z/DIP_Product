@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using DIP.Api.Data;
 using DIP.Api.Models;
 using DIP.Api.Services;
 
@@ -11,8 +13,23 @@ namespace DIP.Api.Controllers;
 public class UserController : ControllerBase
 {
     private readonly UserService _svc;
+    private readonly AppDbContext _db;
 
-    public UserController(UserService svc) { _svc = svc; }
+    public UserController(UserService svc, AppDbContext db) { _svc = svc; _db = db; }
+
+    private async Task<bool> IsAdminAsync()
+    {
+        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return false;
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId);
+        return role?.RoleCode == "admin";
+    }
+
+    private async Task EnsureAdminAsync()
+    {
+        if (!await IsAdminAsync()) throw AppException.Business("仅管理员可操作");
+    }
 
     [HttpGet]
     [Authorize]
@@ -32,9 +49,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var roleCode = User.FindFirstValue("role") ?? "";
-        if (roleCode != "admin") throw AppException.Business("仅管理员可操作");
+        await EnsureAdminAsync();
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(req.Username, req.RealName, req.RoleId, req.Password), "创建成功"));
     }
 
@@ -42,8 +57,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Update(long id, [FromBody] UpdateUserRequest req)
     {
-        var roleCode = User.FindFirstValue("role") ?? "";
-        if (roleCode != "admin") throw AppException.Business("仅管理员可操作");
+        await EnsureAdminAsync();
         return Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.RealName, req.RoleId, req.Status), "更新成功"));
     }
 
@@ -51,8 +65,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Delete(long id)
     {
-        var roleCode = User.FindFirstValue("role") ?? "";
-        if (roleCode != "admin") throw AppException.Business("仅管理员可操作");
+        await EnsureAdminAsync();
         await _svc.DeleteAsync(id);
         return Ok(ApiResponse.Ok(null, "删除成功"));
     }
@@ -61,8 +74,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> ResetPassword(long id, [FromBody] ResetPasswordRequest req)
     {
-        var roleCode = User.FindFirstValue("role") ?? "";
-        if (roleCode != "admin") throw AppException.Business("仅管理员可操作");
+        await EnsureAdminAsync();
         await _svc.ResetPasswordAsync(id, req.NewPassword);
         return Ok(ApiResponse.Ok(null, "密码已重置"));
     }
