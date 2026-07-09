@@ -25,7 +25,7 @@ public class UserController : ControllerBase
 
         // 先查 JWT claim
         var jwtRole = User.FindFirstValue("role") ?? "";
-        if (jwtRole == "admin") return;
+        if (jwtRole.Equals("admin", StringComparison.OrdinalIgnoreCase)) return;
 
         // JWT 不可信则查数据库
         var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == userId);
@@ -36,7 +36,7 @@ public class UserController : ControllerBase
         if (role == null)
             throw AppException.Business($"角色不存在: roleId={user.RoleId}, userId={userId}");
 
-        if (role.RoleCode != "admin")
+        if (!role.RoleCode.Equals("admin", StringComparison.OrdinalIgnoreCase))
             throw AppException.Business($"仅管理员可操作，当前角色: {role.RoleCode}");
 
         // 是 admin，无需额外操作
