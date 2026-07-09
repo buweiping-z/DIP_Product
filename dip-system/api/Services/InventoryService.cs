@@ -297,15 +297,22 @@ public class InventoryService
 
     // ===== Queries =====
 
-    public async Task<object> UpdateAsync(long inventoryId, decimal? totalQty, decimal? availableQty)
+    public async Task<object> UpdateAsync(long inventoryId, decimal? totalQty, decimal? availableQty, string? locationCode)
     {
         var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == inventoryId);
         if (inv == null) throw AppException.NotFound($"库存记录 {inventoryId} 不存在");
         if (totalQty.HasValue) inv.TotalQty = totalQty.Value;
         if (availableQty.HasValue) inv.AvailableQty = availableQty.Value;
+        if (!string.IsNullOrWhiteSpace(locationCode))
+        {
+            var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == locationCode);
+            if (loc == null) throw AppException.NotFound($"库位 {locationCode} 不存在");
+            inv.LocationId = loc.Id;
+        }
         inv.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return new { inv.Id, inv.PartId, inv.LocationId, total_qty = inv.TotalQty, available_qty = inv.AvailableQty, frozen_qty = inv.FrozenQty };
+        var newLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == inv.LocationId);
+        return new { inv.Id, inv.PartId, location_id = inv.LocationId, location_code = newLoc?.LocationCode ?? "", total_qty = inv.TotalQty, available_qty = inv.AvailableQty, frozen_qty = inv.FrozenQty };
     }
 
     public async Task<object> QueryAsync(string? partNo, string? locationCode, int page = 1, int pageSize = 20)

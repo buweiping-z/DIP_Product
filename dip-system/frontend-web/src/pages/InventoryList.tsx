@@ -15,7 +15,7 @@ export default function InventoryList() {
   // edit state
   const [showEdit, setShowEdit] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ total_qty: 0, available_qty: 0 });
+  const [editForm, setEditForm] = useState({ total_qty: 0, available_qty: 0, location_code: '' });
 
   // import report
   const [report, setReport] = useState<any>(null);
@@ -61,13 +61,13 @@ export default function InventoryList() {
 
   const openEdit = (item: any) => {
     setEditItem(item);
-    setEditForm({ total_qty: item.total_qty, available_qty: item.available_qty });
+    setEditForm({ total_qty: item.total_qty, available_qty: item.available_qty, location_code: item.location_code || '' });
     setShowEdit(true);
   };
 
   const handleEdit = async () => {
     try {
-      await api.put(`/inventory/${editItem.id}`, { total_qty: editForm.total_qty, available_qty: editForm.available_qty });
+      await api.put(`/inventory/${editItem.id}`, { total_qty: editForm.total_qty, available_qty: editForm.available_qty, location_code: editForm.location_code });
       showToast('更新成功', 'success');
       setShowEdit(false);
       fetchData();
@@ -158,8 +158,13 @@ export default function InventoryList() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[400px]">
             <h2 className="text-xl font-bold mb-4">编辑库存</h2>
-            <p className="text-sm text-gray-500 mb-4">料号: {editItem.part_no} / 库位: {editItem.location_code}</p>
+            <p className="text-sm text-gray-500 mb-4">料号: {editItem.part_no} / 物料: {editItem.part_name}</p>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">库位编码</label>
+                <input className="w-full border p-2 rounded" value={editForm.location_code}
+                  onChange={e => setEditForm({ ...editForm, location_code: e.target.value })} />
+              </div>
               <div>
                 <label className="block text-sm font-medium mb-1">总数量</label>
                 <input type="number" className="w-full border p-2 rounded" value={editForm.total_qty}

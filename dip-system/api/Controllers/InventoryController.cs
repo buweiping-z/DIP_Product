@@ -48,7 +48,7 @@ public class InventoryController : ControllerBase
     [HttpPut("{id}")]
     [Authorize]
     public async Task<IActionResult> Update(long id, [FromBody] UpdateInventoryRequest req)
-        => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.TotalQty, req.AvailableQty), "更新成功"));
+        => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.TotalQty, req.AvailableQty, req.LocationCode), "更新成功"));
 
     [HttpGet("substitute")]
     public async Task<IActionResult> GetSubstituteList([FromQuery] int page = 1, [FromQuery] int page_size = 20)
@@ -80,6 +80,7 @@ public class UpdateInventoryRequest
 {
     public decimal? TotalQty { get; set; }
     public decimal? AvailableQty { get; set; }
+    public string? LocationCode { get; set; }
 }
 
 public class SubstituteRequest
