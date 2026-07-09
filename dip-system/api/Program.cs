@@ -81,11 +81,33 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// 6. 启动时自动创建/更新数据库表（跳过已存在的表）
+// 6. 启动时自动创建数据库表 + 种子数据
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+
+    // 种子角色
+    if (!db.Roles.Any())
+    {
+        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
+        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "operator", RoleName = "操作员", Status = 1 });
+        db.SaveChanges();
+    }
+
+    // 种子管理员账号
+    if (!db.Operators.Any())
+    {
+        db.Operators.Add(new DIP.Api.Models.Operator
+        {
+            Username = "admin",
+            RealName = "系统管理员",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+            RoleId = db.Roles.First(r => r.RoleCode == "admin").Id,
+            Status = 1
+        });
+        db.SaveChanges();
+    }
 }
 
 // 7. 中间件管道
