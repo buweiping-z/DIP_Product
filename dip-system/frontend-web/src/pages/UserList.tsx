@@ -1,0 +1,210 @@
+import { useEffect, useState, useCallback } from 'react';
+import api from '../lib/api';
+
+export default function UserList() {
+  const [data, setData] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [showDialog, setShowDialog] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState({ username: '', real_name: '', role_id: 0, password: '' });
+  const [showPwdDialog, setShowPwdDialog] = useState(false);
+  const [pwdForm, setPwdForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
+
+  const loadRoles = async () => {
+    try { setRoles((await api.get('/users/roles')).data || []); } catch {}
+  };
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: any = { page: 1, page_size: 100 };
+      if (keyword) params.keyword = keyword;
+      setData((await api.get('/users', { params })).data?.items || []);
+    } catch (err: any) {
+      setMsg('查询失败: ' + (err.response?.data?.message || err.message));
+    } finally { setLoading(false); }
+  }, [keyword]);
+
+  useEffect(() => { fetchData(); }, []);
+
+  const openCreate = async () => {
+    setEditId(null);
+    await loadRoles();
+    setForm({ username: '', real_name: '', role_id: roles[0]?.id || 0, password: '' });
+    setShowDialog(true);
+  };
+
+  const openEdit = async (user: any) => {
+    setEditId(user.id);
+    await loadRoles();
+    setForm({ username: user.username, real_name: user.real_name || '', role_id: user.role_id, password: '' });
+    setShowDialog(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!form.username || (!editId && !form.password)) return alert('请填写必填项');
+    try {
+      if (editId) {
+        await api.put(`/users/${editId}`, { real_name: form.real_name, role_id: form.role_id, status: 1 });
+        setMsg('用户更新成功');
+      } else {
+        await api.post('/users', form);
+        setMsg('用户创建成功');
+      }
+      setShowDialog(false);
+      fetchData();
+    } catch (err: any) { alert(err.response?.data?.message || '操作失败'); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('确认删除此用户？')) return;
+    try { await api.delete(`/users/${id}`); fetchData(); } catch (err: any) { alert(err.response?.data?.message || '删除失败'); }
+  };
+
+  const handleResetPwd = async (id: number) => {
+    const pwd = prompt('请输入新密码（至少4位）：');
+    if (!pwd) return;
+    if (pwd.length < 4) return alert('密码至少4位');
+    try { await api.put(`/users/${id}/reset-password`, { new_password: pwd }); setMsg('密码已重置'); }
+    catch (err: any) { alert(err.response?.data?.message || '重置失败'); }
+  };
+
+  const handleChangePwd = async () => {
+    if (pwdForm.new_password !== pwdForm.confirm_password) return alert('两次密码不一致');
+    if (pwdForm.new_password.length < 4) return alert('新密码至少4位');
+    try {
+      await api.put('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password });
+      setMsg('密码修改成功');
+      setShowPwdDialog(false);
+    } catch (err: any) { alert(err.response?.data?.message || '修改失败'); }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">用户管理</h1>
+        <div className="flex gap-2">
+          <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建用户</button>
+          <button onClick={() => { setPwdForm({ old_password: '', new_password: '', confirm_password: '' }); setShowPwdDialog(true); }}
+            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">修改密码</button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="bg-white rounded-lg shadow p-4 mb-4 flex gap-4 items-end">
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">搜索</label>
+          <input className="border rounded px-3 py-1.5 w-48" placeholder="用户名/姓名"
+            value={keyword} onChange={e => setKeyword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && fetchData()} />
+        </div>
+        <button onClick={fetchData} className="bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700">查询</button>
+      </div>
+
+      {msg && <div className="bg-green-50 text-green-800 p-2 rounded mb-3 text-sm" onClick={() => setMsg('')}>{msg}</div>}
+
+      {loading ? <p>加载中...</p> : (
+        <table className="w-full bg-white rounded-lg shadow">
+          <thead><tr className="bg-gray-50 text-left text-sm">
+            <th className="p-3">ID</th><th className="p-3">用户名</th><th className="p-3">姓名</th>
+            <th className="p-3">角色</th><th className="p-3">状态</th>
+            <th className="p-3">创建时间</th><th className="p-3 w-48">操作</th>
+          </tr></thead>
+          <tbody>{data.map(u => (
+            <tr key={u.id} className="border-t hover:bg-gray-50 text-sm">
+              <td className="p-3">{u.id}</td>
+              <td className="p-3 font-mono">{u.username}</td>
+              <td className="p-3">{u.real_name || '-'}</td>
+              <td className="p-3">{u.role_name || u.role_code}</td>
+              <td className="p-3">
+                <span className={`px-2 py-0.5 rounded text-xs ${u.status === 1 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  {u.status === 1 ? '启用' : '禁用'}
+                </span>
+              </td>
+              <td className="p-3 text-xs text-gray-500">{u.created_at?.slice(0, 19)}</td>
+              <td className="p-3 space-x-1 whitespace-nowrap">
+                <button onClick={() => openEdit(u)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                <button onClick={() => handleResetPwd(u.id)} className="text-orange-500 hover:text-orange-700 text-sm">重置密码</button>
+                <button onClick={() => handleDelete(u.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+
+      {/* Create/Edit Dialog */}
+      {showDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[450px]">
+            <h2 className="text-xl font-bold mb-4">{editId ? '编辑用户' : '新建用户'}</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">用户名</label>
+                <input className="w-full border p-2 rounded" value={form.username}
+                  disabled={!!editId} onChange={e => setForm({ ...form, username: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">姓名</label>
+                <input className="w-full border p-2 rounded" value={form.real_name}
+                  onChange={e => setForm({ ...form, real_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">角色</label>
+                <select className="w-full border p-2 rounded" value={form.role_id}
+                  onChange={e => setForm({ ...form, role_id: Number(e.target.value) })}>
+                  {roles.map((r: any) => <option key={r.id} value={r.id}>{r.role_name} ({r.role_code})</option>)}
+                </select>
+              </div>
+              {!editId && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">密码</label>
+                  <input type="password" className="w-full border p-2 rounded" value={form.password}
+                    onChange={e => setForm({ ...form, password: e.target.value })} />
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setShowDialog(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
+              <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                {editId ? '保存' : '创建'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Dialog */}
+      {showPwdDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[400px]">
+            <h2 className="text-xl font-bold mb-4">修改密码</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">原密码</label>
+                <input type="password" className="w-full border p-2 rounded" value={pwdForm.old_password}
+                  onChange={e => setPwdForm({ ...pwdForm, old_password: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">新密码</label>
+                <input type="password" className="w-full border p-2 rounded" value={pwdForm.new_password}
+                  onChange={e => setPwdForm({ ...pwdForm, new_password: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">确认新密码</label>
+                <input type="password" className="w-full border p-2 rounded" value={pwdForm.confirm_password}
+                  onChange={e => setPwdForm({ ...pwdForm, confirm_password: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setShowPwdDialog(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
+              <button onClick={handleChangePwd} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认修改</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

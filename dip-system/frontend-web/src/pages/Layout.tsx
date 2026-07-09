@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { logout } from '../lib/auth';
 import api from '../lib/api';
-import { Package, Box, Wrench, MapPin, ClipboardList, Truck, RotateCcw, ArrowLeftRight, ClipboardCheck, AlertTriangle, CheckCircle, User } from 'lucide-react';
+import { Package, Box, Wrench, MapPin, ClipboardList, Truck, RotateCcw, ArrowLeftRight, ClipboardCheck, AlertTriangle, CheckCircle, User, Users } from 'lucide-react';
 
 const menu = [
   { path: '/dashboard', label: '仪表盘', icon: Package },
@@ -18,6 +18,7 @@ const menu = [
   { path: '/substitute', label: '替代料移库', icon: ArrowLeftRight },
   { path: '/stockcount', label: '盘点管理', icon: ClipboardCheck },
   { path: '/abnormal', label: '异常管理', icon: AlertTriangle },
+  { path: '/users', label: '用户管理', icon: Users },
 ];
 
 export default function Layout() {
