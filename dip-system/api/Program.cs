@@ -87,27 +87,33 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
-    // 种子角色
-    if (!db.Roles.Any())
-    {
+    // 种子角色（幂等 — 已存在则跳过）
+    if (!db.Roles.Any(r => r.RoleCode == "admin"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
+    if (!db.Roles.Any(r => r.RoleCode == "operator"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "operator", RoleName = "操作员", Status = 1 });
-        db.SaveChanges();
-    }
+    db.SaveChanges();
 
-    // 种子管理员账号
-    if (!db.Operators.Any())
+    var adminRoleId = db.Roles.First(r => r.RoleCode == "admin").Id;
+
+    // 种子管理员账号（不存在则创建，存在则修正RoleId）
+    var adminUser = db.Operators.FirstOrDefault(o => o.Username == "admin");
+    if (adminUser == null)
     {
         db.Operators.Add(new DIP.Api.Models.Operator
         {
             Username = "admin",
             RealName = "系统管理员",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-            RoleId = db.Roles.First(r => r.RoleCode == "admin").Id,
+            RoleId = adminRoleId,
             Status = 1
         });
-        db.SaveChanges();
     }
+    else if (adminUser.RoleId != adminRoleId)
+    {
+        adminUser.RoleId = adminRoleId;
+    }
+    db.SaveChanges();
 }
 
 // 7. 中间件管道
