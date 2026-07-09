@@ -16,6 +16,7 @@ export default function InventoryList() {
   const [showEdit, setShowEdit] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [editForm, setEditForm] = useState({ total_qty: 0, available_qty: 0, location_code: '' });
+  const [allLocations, setAllLocations] = useState<any[]>([]);
 
   // import report
   const [report, setReport] = useState<any>(null);
@@ -59,9 +60,10 @@ export default function InventoryList() {
     e.target.value = '';
   };
 
-  const openEdit = (item: any) => {
+  const openEdit = async (item: any) => {
     setEditItem(item);
     setEditForm({ total_qty: item.total_qty, available_qty: item.available_qty, location_code: item.location_code || '' });
+    try { setAllLocations((await api.get('/locations?page=1&page_size=500')).data?.items || []); } catch {}
     setShowEdit(true);
   };
 
@@ -163,7 +165,11 @@ export default function InventoryList() {
               <div>
                 <label className="block text-sm font-medium mb-1">库位编码</label>
                 <input className="w-full border p-2 rounded" value={editForm.location_code}
-                  onChange={e => setEditForm({ ...editForm, location_code: e.target.value })} />
+                  onChange={e => setEditForm({ ...editForm, location_code: e.target.value })}
+                  list="location-list" placeholder="输入库位编码搜索" />
+                <datalist id="location-list">
+                  {allLocations.map((l: any) => <option key={l.id} value={l.location_code} />)}
+                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">总数量</label>

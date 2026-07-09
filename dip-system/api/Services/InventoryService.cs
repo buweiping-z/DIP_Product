@@ -301,18 +301,40 @@ public class InventoryService
     {
         var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == inventoryId);
         if (inv == null) throw AppException.NotFound($"库存记录 {inventoryId} 不存在");
+
+        var oldLocationId = inv.LocationId;
+        var oldTotalQty = inv.TotalQty;
+
         if (totalQty.HasValue) inv.TotalQty = totalQty.Value;
         if (availableQty.HasValue) inv.AvailableQty = availableQty.Value;
+
         if (!string.IsNullOrWhiteSpace(locationCode))
         {
-            var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == locationCode);
-            if (loc == null) throw AppException.NotFound($"库位 {locationCode} 不存在");
-            inv.LocationId = loc.Id;
+            var newLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == locationCode);
+            if (newLoc == null) throw AppException.NotFound($"库位 {locationCode} 不存在");
+            if (newLoc.Id != oldLocationId)
+            {
+                var oldLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == oldLocationId);
+                if (oldLoc != null) oldLoc.CurrentQty -= oldTotalQty;
+                newLoc.CurrentQty += inv.TotalQty;
+                inv.LocationId = newLoc.Id;
+            }
+            else if (totalQty.HasValue)
+            {
+                // 同库位只改数量
+                newLoc.CurrentQty += (inv.TotalQty - oldTotalQty);
+            }
         }
+        else if (totalQty.HasValue)
+        {
+            var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == oldLocationId);
+            if (loc != null) loc.CurrentQty += (inv.TotalQty - oldTotalQty);
+        }
+
         inv.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        var newLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == inv.LocationId);
-        return new { inv.Id, inv.PartId, location_id = inv.LocationId, location_code = newLoc?.LocationCode ?? "", total_qty = inv.TotalQty, available_qty = inv.AvailableQty, frozen_qty = inv.FrozenQty };
+        var finalLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == inv.LocationId);
+        return new { inv.Id, inv.PartId, location_id = inv.LocationId, location_code = finalLoc?.LocationCode ?? "", total_qty = inv.TotalQty, available_qty = inv.AvailableQty, frozen_qty = inv.FrozenQty };
     }
 
     public async Task<object> QueryAsync(string? partNo, string? locationCode, int page = 1, int pageSize = 20)
