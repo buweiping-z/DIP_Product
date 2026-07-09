@@ -14,7 +14,12 @@ export default function UserList() {
   const [pwdForm, setPwdForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
 
   const loadRoles = async () => {
-    try { setRoles((await api.get('/users/roles')).data || []); } catch {}
+    try {
+      const res = await api.get('/users/roles');
+      const data = res.data || [];
+      setRoles(data);
+      return data;
+    } catch { return []; }
   };
 
   const fetchData = useCallback(async () => {
@@ -32,14 +37,14 @@ export default function UserList() {
 
   const openCreate = async () => {
     setEditId(null);
-    await loadRoles();
-    setForm({ username: '', real_name: '', role_id: roles[0]?.id || 0, password: '' });
+    const rolesData = await loadRoles();
+    setForm({ username: '', real_name: '', role_id: rolesData[0]?.id || 0, password: '' });
     setShowDialog(true);
   };
 
   const openEdit = async (user: any) => {
     setEditId(user.id);
-    await loadRoles();
+    const rolesData = await loadRoles();
     setForm({ username: user.username, real_name: user.real_name || '', role_id: user.role_id, password: '' });
     setShowDialog(true);
   };
