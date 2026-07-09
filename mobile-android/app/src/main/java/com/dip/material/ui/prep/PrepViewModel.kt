@@ -52,12 +52,21 @@ class PrepViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(isLoading = true, scanMsg = null) }
             repo.scanPrepItem(prepId, barcode).fold(
                 onSuccess = { res ->
-                    val data = res.data
-                    if (data == null || !data.matched) {
-                        _state.update { it.copy(isLoading = false, scanMsg = data?.message ?: "未匹配") }
+                    // res 是 ApiResponse 的 data 部分（Map 结构: code, data, message）
+                    val data = (res["data"] as? Map<*, *>)
+                    val code = (res["code"] as? Double)?.toInt() ?: -1
+                    if (code != 0 || data == null) {
+                        _state.update { it.copy(isLoading = false, scanMsg = res["message"] as? String ?: "请求失败") }
                     } else {
-                        _state.update { it.copy(isLoading = false, scanMsg = "已备齐: ${data.partNo}", allDone = data.allDone) }
-                        selectOrder(prepId)
+                        val matched = data["matched"] as? Boolean ?: false
+                        if (!matched) {
+                            _state.update { it.copy(isLoading = false, scanMsg = data["message"] as? String ?: "未匹配到备料明细") }
+                        } else {
+                            val partNo = data["part_no"] as? String ?: ""
+                            val allDone = data["all_done"] as? Boolean ?: false
+                            _state.update { it.copy(isLoading = false, scanMsg = "已备齐: $partNo", allDone = allDone) }
+                            selectOrder(prepId)
+                        }
                     }
                 },
                 onFailure = { e -> _state.update { it.copy(isLoading = false, scanMsg = e.message) } }

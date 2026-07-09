@@ -31,8 +31,10 @@ class AppRepository(val context: Context) {
     // Prep
     suspend fun getPrepOrders(status: Int? = null) = call { api.getPrepOrders(status = status) }
     suspend fun getPrepDetail(prepId: Int) = call { api.getPrepDetail(prepId) }
-    suspend fun scanPrepItem(prepId: Int, barcode: String, detailId: Int? = null) =
-        call { api.scanPrepItem(prepId, PrepScanRequest(barcode, detailId)) }
+    suspend fun scanPrepItem(prepId: Int, barcode: String, detailId: Int? = null): Result<Map<String, Any?>> {
+        return try { Result.success(api.scanPrepItem(prepId, PrepScanRequest(barcode, detailId))) }
+        catch (e: Exception) { Result.failure(Exception("网络连接失败: ${e.message}")) }
+    }
     suspend fun checkKitComplete(prepId: Int) = call { api.checkKitComplete(prepId) }
 
     // Refill

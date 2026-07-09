@@ -46,7 +46,7 @@ interface ApiService {
     suspend fun getPrepDetail(@Path("prepId") prepId: Int): ApiResponse<PrepDetail>
 
     @POST("api/v1/prep/{prepId}/scan")
-    suspend fun scanPrepItem(@Path("prepId") prepId: Int, @Body request: PrepScanRequest): ApiResponse<PrepScanResult>
+    suspend fun scanPrepItem(@Path("prepId") prepId: Int, @Body request: PrepScanRequest): Map<String, Any?>
 
     @POST("api/v1/prep/{prepId}/kit-check")
     suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<PrepScanResult>
