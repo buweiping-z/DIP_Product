@@ -17,18 +17,29 @@ public class UserController : ControllerBase
 
     public UserController(UserService svc, AppDbContext db) { _svc = svc; _db = db; }
 
-    private async Task<bool> IsAdminAsync()
-    {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == userId);
-        if (user == null) return false;
-        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId);
-        return role?.RoleCode == "admin";
-    }
-
     private async Task EnsureAdminAsync()
     {
-        if (!await IsAdminAsync()) throw AppException.Business("仅管理员可操作");
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !long.TryParse(userIdStr, out var userId))
+            throw AppException.Business("无法识别用户身份");
+
+        // 先查 JWT claim
+        var jwtRole = User.FindFirstValue("role") ?? "";
+        if (jwtRole == "admin") return;
+
+        // JWT 不可信则查数据库
+        var user = await _db.Operators.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null)
+            throw AppException.Business($"用户不存在: id={userId}");
+
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId);
+        if (role == null)
+            throw AppException.Business($"角色不存在: roleId={user.RoleId}, userId={userId}");
+
+        if (role.RoleCode != "admin")
+            throw AppException.Business($"仅管理员可操作，当前角色: {role.RoleCode}");
+
+        // 是 admin，无需额外操作
     }
 
     [HttpGet]
