@@ -52,7 +52,7 @@ class PrepViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(isLoading = true, scanMsg = null) }
             repo.scanPrepItem(prepId, barcode).fold(
                 onSuccess = { res ->
-                    val data = res.data?.data
+                    val data = res.data
                     if (data is Map<*, *>) {
                         val matched = data["matched"] as? Boolean ?: false
                         if (matched) {
