@@ -40,7 +40,32 @@ public class PartService
         var partNo = data.GetStr("part_no");
         if (string.IsNullOrWhiteSpace(partNo)) throw AppException.Business("料号不能为空");
 
-        if (await _db.Parts.AnyAsync(p => p.PartNo == partNo && !p.IsDeleted))
+        // 已删除的同号物料 → 恢复
+        var deleted = await _db.Parts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(p => p.PartNo == partNo && p.IsDeleted);
+        if (deleted != null)
+        {
+            deleted.IsDeleted = false;
+            deleted.PartName = data.GetStr("part_name") ?? deleted.PartName;
+            deleted.SupplierId = data.GetLong("supplier_id") ?? deleted.SupplierId;
+            deleted.SupplierName = data.GetStr("supplier_name") ?? deleted.SupplierName;
+            deleted.PartType = data.GetInt("part_type") ?? deleted.PartType;
+            deleted.Unit = data.GetStr("unit") ?? deleted.Unit;
+            deleted.UnitPrice = data.GetDecimal("unit_price");
+            deleted.Specification = data.GetStr("specification") ?? deleted.Specification;
+            deleted.MslLevel = data.GetInt("msl_level") ?? deleted.MslLevel;
+            deleted.MinStock = data.GetInt("min_stock") ?? deleted.MinStock;
+            deleted.MaxStock = data.GetInt("max_stock") ?? deleted.MaxStock;
+            deleted.BarcodeRule = data.GetStr("barcode_rule") ?? deleted.BarcodeRule;
+            deleted.ImageUrl = data.GetStr("image_url") ?? deleted.ImageUrl;
+            deleted.Status = 1;
+            deleted.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return ToDict(deleted);
+        }
+
+        // 正常存活则拒绝
+        if (await _db.Parts.AnyAsync(p => p.PartNo == partNo))
             throw AppException.Business($"料号 {partNo} 已存在");
 
         var part = new Part

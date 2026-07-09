@@ -88,9 +88,6 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
-    // 删除 PartNo 唯一索引（软删除后允许重建同号物料；MySQL 不支持 IF EXISTS，catch 忽略报错）
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE parts DROP INDEX uq_parts_part_no"); } catch {}
-
     // 种子角色（幂等 — 已存在则跳过）
     if (!db.Roles.Any(r => r.RoleCode == "admin"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });

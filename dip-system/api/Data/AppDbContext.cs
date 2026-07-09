@@ -139,7 +139,7 @@ public class AppDbContext : DbContext
         // ===== 唯一索引 =====
         modelBuilder.Entity<Role>().HasIndex(e => e.RoleCode).IsUnique().HasDatabaseName("uq_roles_code");
         modelBuilder.Entity<Operator>().HasIndex(e => e.Username).IsUnique().HasDatabaseName("uq_operators_username");
-        // PartNo 唯一性由应用层保证（软删除后允许重建同号）
+        modelBuilder.Entity<Part>().HasIndex(e => e.PartNo).IsUnique().HasDatabaseName("uq_parts_part_no");
         modelBuilder.Entity<Supplier>().HasIndex(e => e.SupplierCode).IsUnique().HasDatabaseName("uq_suppliers_code");
         modelBuilder.Entity<ProductionLine>().HasIndex(e => e.LineNo).IsUnique().HasDatabaseName("uq_lines_no");
         modelBuilder.Entity<WarehouseLocation>().HasIndex(e => e.LocationCode).IsUnique().HasDatabaseName("uq_locations_code");
