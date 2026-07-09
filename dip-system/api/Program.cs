@@ -117,6 +117,26 @@ using (var scope = app.Services.CreateScope())
         adminUser.RoleId = adminRoleId;
     }
     db.SaveChanges();
+
+    // 修复僵尸冻结库存：根据活跃备料扫描记录重建 FrozenQty
+    var frozenInvs = db.Inventories.Where(i => i.FrozenQty > 0).ToList();
+    foreach (var inv in frozenInvs)
+    {
+        // 计算该库位+部品实际应冻结的数量：来自未取消的备料单扫描
+        var expectedFrozen = db.PrepScanRecords
+            .Where(s => s.SourceLocationId == inv.LocationId
+                && db.PrepDetails.Any(d => d.Id == s.PrepDetailId && d.PartId == inv.PartId
+                    && db.PrepOrders.Any(p => p.Id == d.PrepOrderId && p.Status != 3)))
+            .Sum(s => (decimal?)s.Quantity) ?? 0m;
+
+        if (inv.FrozenQty > expectedFrozen)
+        {
+            var excess = inv.FrozenQty - expectedFrozen;
+            inv.FrozenQty = expectedFrozen;
+            inv.AvailableQty += excess;
+        }
+    }
+    db.SaveChanges();
 }
 
 // 7. 中间件管道
