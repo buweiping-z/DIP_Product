@@ -73,7 +73,7 @@ public class RequireManagerFilter : IAsyncActionFilter
         var role = await db.Roles.FirstOrDefaultAsync(r => r.Id == op.RoleId);
         if (role == null || !ManagerRoles.Contains(role.RoleCode))
         {
-            context.Result = new JsonResult(ApiResponse.Fail(403, "仅管理员/班组长可操作"));
+            context.Result = new JsonResult(ApiResponse.Fail(403, "当前用户无法操作"));
             return;
         }
 
