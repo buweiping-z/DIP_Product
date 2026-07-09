@@ -7,55 +7,49 @@ import com.dip.material.data.network.RetrofitClient
 class AppRepository(val context: Context) {
     private val api get() = RetrofitClient.getApiService(context)
 
+    private suspend fun <T> call(block: suspend () -> T): Result<T> {
+        return try { Result.success(block()) }
+        catch (e: Exception) { Result.failure(Exception("网络连接失败: ${e.message}")) }
+    }
+
     // Auth
-    suspend fun login(username: String, password: String) = api.login(LoginRequest(username, password))
-    suspend fun getCurrentUser() = api.getCurrentUser()
+    suspend fun login(username: String, password: String) = call { api.login(LoginRequest(username, password)) }
+    suspend fun getCurrentUser() = call { api.getCurrentUser() }
 
     // Dashboard
-    suspend fun getDashboardStats() = api.getDashboardStats()
+    suspend fun getDashboardStats() = call { api.getDashboardStats() }
 
     // Parts & Locations
-    suspend fun getParts() = api.getParts()
-    suspend fun getLocations() = api.getLocations()
-    suspend fun searchParts(partNo: String) = api.getParts(partNo = partNo, pageSize = 5)
-    suspend fun searchLocations(locationCode: String) = api.getLocations(locationCode = locationCode, pageSize = 5)
-    suspend fun getAvailableInventory(partId: Int) = api.getAvailableInventory(partId)
-
-    // Prep
-    suspend fun getPrepOrders(status: Int? = null) = api.getPrepOrders(status = status)
-    suspend fun getPrepDetail(prepId: Int) = api.getPrepDetail(prepId)
-    suspend fun scanPrepItem(prepId: Int, barcode: String, detailId: Int? = null) =
-        api.scanPrepItem(prepId, PrepScanRequest(barcode, detailId))
-    suspend fun checkKitComplete(prepId: Int) = api.checkKitComplete(prepId)
-
-    // Refill
-    suspend fun getPendingItems() = api.getPendingItems()
-    suspend fun getRefillRecords() = api.getRefillRecords()
-
-    // Return
-    suspend fun scanReturn(barcode: String, locationId: Int) =
-        api.scanReturn(ReturnScanRequest(barcode, locationId))
-    suspend fun getReturnList() = api.getReturnList()
+    suspend fun searchParts(partNo: String) = call { api.getParts(partNo = partNo, pageSize = 5) }
+    suspend fun searchLocations(locationCode: String) = call { api.getLocations(locationCode = locationCode, pageSize = 5) }
+    suspend fun getAvailableInventory(partId: Int) = call { api.getAvailableInventory(partId) }
 
     // Shelving
     suspend fun directShelving(barcode: String, targetLocationCode: String, quantity: Double) =
-        api.directShelving(DirectShelvingRequest(barcode, targetLocationCode, quantity))
+        call { api.directShelving(DirectShelvingRequest(barcode, targetLocationCode, quantity)) }
 
-    suspend fun getShelvingBatches(status: Int? = null) = api.getShelvingBatches(status = status)
-    suspend fun getShelvingDetail(batchId: Int) = api.getShelvingDetail(batchId)
-    suspend fun confirmShelving(batchId: Int) = api.confirmShelving(batchId)
-    suspend fun scanShelvingItem(batchId: Int, barcode: String) =
-        api.scanShelvingItem(batchId, ShelvingScanRequest(barcode, batchId))
+    // Prep
+    suspend fun getPrepOrders(status: Int? = null) = call { api.getPrepOrders(status = status) }
+    suspend fun getPrepDetail(prepId: Int) = call { api.getPrepDetail(prepId) }
+    suspend fun scanPrepItem(prepId: Int, barcode: String, detailId: Int? = null) =
+        call { api.scanPrepItem(prepId, PrepScanRequest(barcode, detailId)) }
+    suspend fun checkKitComplete(prepId: Int) = call { api.checkKitComplete(prepId) }
 
-    // Substitute
-    suspend fun getSubstituteRecords() = api.getSubstituteRecords()
-    suspend fun createSubstitute(originalPartId: Int, substitutePartId: Int,
-                                 sourceLocationId: Int, targetLocationId: Int, quantity: Double) =
-        api.createSubstitute(SubstituteRequest(originalPartId, substitutePartId, sourceLocationId, targetLocationId, quantity))
-    suspend fun confirmSubstitute(id: Int) = api.confirmSubstitute(id)
+    // Refill
+    suspend fun getPendingItems() = call { api.getPendingItems() }
+    suspend fun getRefillRecords() = call { api.getRefillRecords() }
+
+    // Return
+    suspend fun scanReturn(barcode: String, locationId: Int) =
+        call { api.scanReturn(ReturnScanRequest(barcode, locationId)) }
+    suspend fun getReturnList() = call { api.getReturnList() }
 
     // Online
     suspend fun confirmOnline(prepOrderId: Int, partNo: String, barcode: String) =
-        api.confirmOnline(OnlineConfirmRequest(prepOrderId, partNo, barcode))
-    suspend fun getOnlineRecords() = api.getOnlineRecords()
+        call { api.confirmOnline(OnlineConfirmRequest(prepOrderId, partNo, barcode)) }
+
+    // Substitute
+    suspend fun createSubstitute(originalPartId: Int, substitutePartId: Int,
+                                 sourceLocationId: Int, targetLocationId: Int, quantity: Double) =
+        call { api.createSubstitute(SubstituteRequest(originalPartId, substitutePartId, sourceLocationId, targetLocationId, quantity)) }
 }
