@@ -192,11 +192,11 @@ public class PrepService
 
         if (!string.IsNullOrEmpty(locationCode))
         {
-            var locIds = await _db.WarehouseLocations
+            var filterLocIds = await _db.WarehouseLocations
                 .Where(l => l.LocationCode.Contains(locationCode))
                 .Select(l => l.Id)
                 .ToListAsync();
-            query = query.Where(s => locIds.Contains(s.SourceLocationId));
+            query = query.Where(s => filterLocIds.Contains(s.SourceLocationId));
         }
 
         if (startDate.HasValue)
