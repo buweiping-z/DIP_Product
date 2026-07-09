@@ -105,3 +105,34 @@ dotnet publish -c Release --self-contained -r win-x64
 - `api-response-code-check.md` — 前端必须检查业务 code
 - `react-setstate-closure-trap.md` — React setState 异步闭包
 - `seed-data-idempotency.md` — 种子数据幂等修正
+
+### 2026-07-10 — 手机端完整重写 + 订单库存修复 + 备料扫描优化
+
+**手机端重写：**
+- 参考 machine_check 架构，MVVM + Navigation Compose + CameraX + ML Kit
+- 30+ 新文件，Material 3 蓝灰主题，7 路由 NavHost
+- 半屏相机扫码组件（QrCodeScanner + BarcodeAnalyzer）
+- 上架 4 步向导 + 备料/补料/退料/上线/替代页面
+- 默认服务器 `192.168.5.11:8800`
+
+**备料扫描优化：**
+- 扫码/输入料号自动匹配备料明细，一次性冻结全部剩余数量
+- 全部完成自动退出，手动退出按钮保留
+- 大小写不敏感 + 去空格匹配
+- 显示总需求量（total_required_qty）和库存库位
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 9 | 订单取消库存未释放 | CancelAsync 只设 status=4，不调 ThawCoreAsync | 取消时遍历关联备料单解冻库存 |
+| 10 | 库存冻结数量不准 | 历史取消订单留下的僵尸 FrozenQty | 启动时根据活跃备料扫描重建 FrozenQty |
+| 11 | 物料软删除后无法重建同号 | PartNo 唯一索引 + IsDeleted 仍占位 | 创建时 IgnoreQueryFilters 查软删除记录→恢复 |
+| 12 | 库存编辑迁移库位数量不同步 | 未更新 WarehouseLocations.CurrentQty | 换库位时旧减新加，改数量时调整 |
+| 13 | 库存导入同一库位不同料号静默覆盖 | 导入未检查已有库存 | 预加载库存，同库位不同料号跳过+报告 |
+| 14 | 前端 alert 弹窗标题 localhost:3000 | 浏览器原生 alert() | 自定义 Toast 组件 + axios 拦截器全局错误处理 |
+| 15 | 手机端备料扫描 Gson 泛型擦除 | ApiResponse<PrepScanResult> data 字段无法反序列化 | 改用 Map<String, Any?> 手动解析 |
+
+**新增避坑经验（memory）：**
+- `soft-delete-restore-on-create.md` — 软删除+唯一索引的创建恢复模式
+- `android-retrofit-gson-generic-erasure.md` — Android Gson 泛型擦除陷阱
