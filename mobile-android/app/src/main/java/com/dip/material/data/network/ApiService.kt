@@ -46,10 +46,10 @@ interface ApiService {
     suspend fun getPrepDetail(@Path("prepId") prepId: Int): ApiResponse<PrepDetail>
 
     @POST("api/v1/prep/{prepId}/scan")
-    suspend fun scanPrepItem(@Path("prepId") prepId: Int, @Body request: PrepScanRequest): ApiResponse<Any>
+    suspend fun scanPrepItem(@Path("prepId") prepId: Int, @Body request: PrepScanRequest): ApiResponse<PrepScanResult>
 
     @POST("api/v1/prep/{prepId}/kit-check")
-    suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<Any>
+    suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<PrepScanResult>
 
     // ===== Refill =====
     @GET("api/v1/prep/pending")
@@ -60,16 +60,16 @@ interface ApiService {
 
     // ===== Return =====
     @POST("api/v1/return/scan")
-    suspend fun scanReturn(@Body request: ReturnScanRequest): ApiResponse<Any>
+    suspend fun scanReturn(@Body request: ReturnScanRequest): ApiResponse<PrepScanResult>
 
     @GET("api/v1/return")
     suspend fun getReturnList(@Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50): ApiResponse<PageResult<ReturnOrderItem>>
 
     // ===== Online =====
     @POST("api/v1/online/confirm")
-    suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<Any>
+    suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<PrepScanResult>
 
     // ===== Substitute =====
     @POST("api/v1/inventory/substitute")
-    suspend fun createSubstitute(@Body request: SubstituteRequest): ApiResponse<Any>
+    suspend fun createSubstitute(@Body request: SubstituteRequest): ApiResponse<PrepScanResult>
 }

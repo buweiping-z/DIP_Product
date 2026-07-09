@@ -53,23 +53,11 @@ class PrepViewModel(application: Application) : AndroidViewModel(application) {
             repo.scanPrepItem(prepId, barcode).fold(
                 onSuccess = { res ->
                     val data = res.data
-                    if (data is Map<*, *>) {
-                        val matched = data["matched"] as? Boolean ?: false
-                        if (matched) {
-                            val partNo = data["part_no"] as? String ?: ""
-                            val allDone = data["all_done"] as? Boolean ?: false
-                            _state.update { it.copy(isLoading = false, scanMsg = "已备齐: $partNo", allDone = allDone) }
-                            if (allDone) {
-                                // 全部完成，刷新详情
-                                selectOrder(prepId)
-                            } else {
-                                // 刷新详情
-                                selectOrder(prepId)
-                            }
-                        } else {
-                            val msg = data["message"] as? String ?: "未匹配"
-                            _state.update { it.copy(isLoading = false, scanMsg = msg) }
-                        }
+                    if (data == null || !data.matched) {
+                        _state.update { it.copy(isLoading = false, scanMsg = data?.message ?: "未匹配") }
+                    } else {
+                        _state.update { it.copy(isLoading = false, scanMsg = "已备齐: ${data.partNo}", allDone = data.allDone) }
+                        selectOrder(prepId)
                     }
                 },
                 onFailure = { e -> _state.update { it.copy(isLoading = false, scanMsg = e.message) } }

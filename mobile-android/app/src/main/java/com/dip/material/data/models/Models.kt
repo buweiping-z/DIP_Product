@@ -91,6 +91,16 @@ data class PartStock(
     @SerializedName("available_qty") val availableQty: Double
 )
 data class PrepScanRequest(val barcode: String, @SerializedName("prep_detail_id") val prepDetailId: Int? = null)
+
+data class PrepScanResult(
+    val matched: Boolean = false,
+    @SerializedName("part_no") val partNo: String? = null,
+    @SerializedName("actual_qty") val actualQty: Double = 0.0,
+    @SerializedName("required_qty") val requiredQty: Double = 0.0,
+    val status: Int = 0,
+    @SerializedName("all_done") val allDone: Boolean = false,
+    val message: String? = null
+)
 data class PendingItem(
     @SerializedName("prep_detail_id") val prepDetailId: Int,
     @SerializedName("prep_order_id") val prepOrderId: Int,
