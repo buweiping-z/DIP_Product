@@ -22,7 +22,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     val token: Flow<String> = context.dataStore.data.map { it[KEY_TOKEN] ?: "" }
-    val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "http://10.0.2.2:8800/" }
+    val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "http://192.168.5.11:8800/" }
 
     suspend fun saveTokens(token: String, refreshToken: String) {
         context.dataStore.edit {

@@ -8,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    var baseUrl: String = "http://10.0.2.2:8800/"
+    var baseUrl: String = "http://192.168.5.11:8800/"
     private var apiService: ApiService? = null
 
     fun getApiService(context: Context): ApiService {
