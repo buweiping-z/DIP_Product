@@ -160,4 +160,57 @@ public class ShelvingService
             loaded_at = record.LoadedAt
         };
     }
+
+    public async Task<object> GetRecordsAsync(string? partName, string? locationCode,
+        DateTime? startDate, DateTime? endDate, int page = 1, int pageSize = 20)
+    {
+        var query = _db.MaterialShelvings.AsQueryable();
+
+        if (!string.IsNullOrEmpty(partName))
+            query = query.Where(m => m.PartName.Contains(partName));
+
+        if (!string.IsNullOrEmpty(locationCode))
+        {
+            var locIds = await _db.WarehouseLocations
+                .Where(l => l.LocationCode.Contains(locationCode))
+                .Select(l => l.Id)
+                .ToListAsync();
+            query = query.Where(m => locIds.Contains(m.TargetLocationId));
+        }
+
+        if (startDate.HasValue)
+            query = query.Where(m => m.LoadedAt >= startDate.Value);
+
+        if (endDate.HasValue)
+            query = query.Where(m => m.LoadedAt < endDate.Value.AddDays(1));
+
+        var total = await query.CountAsync();
+        var items = await query.OrderByDescending(m => m.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+
+        // 批量取库位编码和操作者姓名
+        var targetLocIds = items.Select(i => i.TargetLocationId).Distinct().ToList();
+        var userIds = items.Select(i => i.OperatorId).Distinct().ToList();
+        var locsMap = (await _db.WarehouseLocations.Where(l => targetLocIds.Contains(l.Id)).ToListAsync())
+            .ToDictionary(l => l.Id);
+        var usersMap = (await _db.Operators.Where(u => userIds.Contains(u.Id)).ToListAsync())
+            .ToDictionary(u => u.Id);
+
+        return new
+        {
+            total, page, page_size = pageSize,
+            items = items.Select(m => (object)new
+            {
+                m.Id,
+                part_no = m.PartNo,
+                part_name = m.PartName,
+                target_location_id = m.TargetLocationId,
+                target_location_code = locsMap.TryGetValue(m.TargetLocationId, out var l) ? l.LocationCode : "",
+                quantity = m.Quantity,
+                operator_id = m.OperatorId,
+                operator_name = usersMap.TryGetValue(m.OperatorId, out var u) ? u.RealName : "",
+                loaded_at = m.LoadedAt
+            })
+        };
+    }
 }

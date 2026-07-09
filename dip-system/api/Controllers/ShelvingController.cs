@@ -63,6 +63,16 @@ public class ShelvingController : ControllerBase
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         return Ok(ApiResponse.Ok(await _svc.DirectShelvingAsync(req.Barcode, req.TargetLocationCode, req.Quantity, userId), "上架成功"));
     }
+
+    [HttpGet("records")]
+    public async Task<IActionResult> GetRecords(
+        [FromQuery] string? part_name,
+        [FromQuery] string? location_code,
+        [FromQuery] DateTime? start_date,
+        [FromQuery] DateTime? end_date,
+        [FromQuery] int page = 1,
+        [FromQuery] int page_size = 20)
+        => Ok(ApiResponse.Ok(await _svc.GetRecordsAsync(part_name, location_code, start_date, end_date, page, page_size)));
 }
 
 public class CreateBatchRequest { public long TargetLocationId { get; set; } }
