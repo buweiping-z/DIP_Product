@@ -12,11 +12,12 @@ api.interceptors.response.use(
     // 全局业务错误拦截：非 0 code 且非 200 HTTP 状态显示提示
     if (body && body.code !== 0 && body.code !== undefined) {
       const msg = body.message || '操作失败';
-      // 权限相关错误统一替换为友好提示
       const displayMsg = (body.code === 401 || body.code === 403)
         ? '当前用户无法操作'
         : msg;
       showToast(displayMsg, 'error');
+      // 抛出错误中断调用方的 success 路径
+      throw new Error(displayMsg);
     }
     return body;
   },
