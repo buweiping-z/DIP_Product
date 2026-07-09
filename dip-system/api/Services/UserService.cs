@@ -40,11 +40,26 @@ public class UserService
         if (string.IsNullOrWhiteSpace(username)) throw AppException.Business("用户名不能为空");
         if (string.IsNullOrWhiteSpace(password) || password.Length < 4) throw AppException.Business("密码至少4位");
 
-        var exist = await _db.Operators.AnyAsync(u => u.Username == username && !u.IsDeleted);
-        if (exist) throw AppException.Business("用户名已存在");
-
         var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId);
         if (role == null) throw AppException.NotFound("角色不存在");
+
+        // 已软删除的同名用户 → 恢复
+        var deleted = await _db.Operators.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Username == username && u.IsDeleted);
+        if (deleted != null)
+        {
+            deleted.IsDeleted = false;
+            deleted.RealName = realName;
+            deleted.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+            deleted.RoleId = roleId;
+            deleted.Status = 1;
+            deleted.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return new { id = deleted.Id, username = deleted.Username, real_name = deleted.RealName, role_id = deleted.RoleId, status = deleted.Status };
+        }
+
+        if (await _db.Operators.AnyAsync(u => u.Username == username))
+            throw AppException.Business("用户名已存在");
 
         var user = new Operator
         {
