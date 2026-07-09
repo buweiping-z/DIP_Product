@@ -314,6 +314,12 @@ public class InventoryService
             if (newLoc == null) throw AppException.NotFound($"库位 {locationCode} 不存在");
             if (newLoc.Id != oldLocationId)
             {
+                // 检查目标库位是否已有不同料号
+                var conflict = await _db.Inventories.FirstOrDefaultAsync(i =>
+                    i.LocationId == newLoc.Id && i.PartId != inv.PartId);
+                if (conflict != null)
+                    throw AppException.Business($"库位 {locationCode} 已有其他料号，不能放入不同料号");
+
                 var oldLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == oldLocationId);
                 if (oldLoc != null) oldLoc.CurrentQty -= oldTotalQty;
                 newLoc.CurrentQty += inv.TotalQty;
