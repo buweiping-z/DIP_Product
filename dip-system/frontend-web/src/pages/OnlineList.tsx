@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
 
-export default function RefillList() {
+export default function OnlineList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [partNo, setPartNo] = useState('');
-  const [locationCode, setLocationCode] = useState('');
+  const [stationNo, setStationNo] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [msg, setMsg] = useState('');
@@ -15,14 +15,14 @@ export default function RefillList() {
     try {
       const params: any = { page: 1, page_size: 100 };
       if (partNo) params.part_no = partNo;
-      if (locationCode) params.location_code = locationCode;
+      if (stationNo) params.station_no = stationNo;
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
-      setData((await api.get('/prep/refills', { params })).data?.items || []);
+      setData((await api.get('/online', { params })).data?.items || []);
     } catch (err: any) {
       setMsg('查询失败: ' + (err.response?.data?.message || err.message));
     } finally { setLoading(false); }
-  }, [partNo, locationCode, startDate, endDate]);
+  }, [partNo, stationNo, startDate, endDate]);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -30,15 +30,14 @@ export default function RefillList() {
 
   const handleClear = () => {
     setPartNo('');
-    setLocationCode('');
+    setStationNo('');
     setStartDate('');
     setEndDate('');
   };
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">补料记录</h1>
-      <p className="text-gray-500 text-sm mb-4">手机端扫码补料的操作记录</p>
+      <h1 className="text-2xl font-bold mb-4">上线确认</h1>
 
       {/* Search bar */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -50,9 +49,9 @@ export default function RefillList() {
               onKeyDown={e => e.key === 'Enter' && handleSearch()} />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">来源库位</label>
-            <input className="border rounded px-3 py-1.5 w-36" placeholder="输入库位编码"
-              value={locationCode} onChange={e => setLocationCode(e.target.value)}
+            <label className="block text-sm text-gray-600 mb-1">工位</label>
+            <input className="border rounded px-3 py-1.5 w-32" placeholder="输入工位"
+              value={stationNo} onChange={e => setStationNo(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()} />
           </div>
           <div>
@@ -77,21 +76,19 @@ export default function RefillList() {
       {loading ? <p>加载中...</p> : (
         <table className="w-full bg-white rounded-lg shadow">
           <thead><tr className="bg-gray-50 text-left text-sm">
-            <th className="p-3">备料单号</th>
+            <th className="p-3">备料单ID</th>
             <th className="p-3">料号</th>
-            <th className="p-3">来源库位</th>
-            <th className="p-3">操作人</th>
-            <th className="p-3">时间</th>
+            <th className="p-3">上线数量</th>
+            <th className="p-3">工位</th>
+            <th className="p-3">确认时间</th>
           </tr></thead>
-          <tbody>{data.length === 0 ? (
-            <tr><td colSpan={5} className="p-6 text-center text-gray-400">暂无补料记录</td></tr>
-          ) : data.map(r => (
-            <tr key={r.id} className="border-t hover:bg-gray-50 text-sm">
-              <td className="p-3 font-mono">{r.prep_order_no}</td>
-              <td className="p-3 font-mono">{r.part_no}</td>
-              <td className="p-3">{r.source_location_code || '-'}</td>
-              <td className="p-3">{r.operator_name || '-'}</td>
-              <td className="p-3 text-xs text-gray-500">{r.created_at?.slice(0, 19)}</td>
+          <tbody>{data.map(c => (
+            <tr key={c.id} className="border-t hover:bg-gray-50">
+              <td className="p-3">{c.prep_order_id}</td>
+              <td className="p-3 font-mono text-sm">{c.part_no}</td>
+              <td className="p-3">{c.loaded_qty}</td>
+              <td className="p-3">{c.station_no || '-'}</td>
+              <td className="p-3 text-sm text-gray-500">{c.confirmed_at?.slice(0, 19)}</td>
             </tr>
           ))}</tbody>
         </table>
