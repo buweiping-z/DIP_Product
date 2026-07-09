@@ -136,11 +136,18 @@ public class PrepService
         var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == prepId);
         if (prep == null || prep.Status != 1) throw AppException.Business("备料单状态不允许操作");
 
+        barcode = barcode.Trim();
         PrepDetail? detail = null;
         if (detailId.HasValue)
             detail = await _db.PrepDetails.FirstOrDefaultAsync(d => d.Id == detailId.Value && d.PrepOrderId == prepId);
         if (detail == null)
-            detail = await _db.PrepDetails.FirstOrDefaultAsync(d => d.PrepOrderId == prepId && d.PartNo.Contains(barcode));
+        {
+            // 大小写不敏感 + 空格容错：条码包含料号即匹配
+            var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId && d.Status != 2).ToListAsync();
+            detail = details.FirstOrDefault(d =>
+                string.Equals(d.PartNo.Trim(), barcode, StringComparison.OrdinalIgnoreCase) ||
+                barcode.Contains(d.PartNo.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
         if (detail == null) return new { matched = false, message = "未匹配到备料明细" };
 
         var remaining = detail.RequiredQty - detail.ActualQty;
