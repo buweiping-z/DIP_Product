@@ -65,6 +65,7 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpGet("records")]
+    [Authorize]
     public async Task<IActionResult> GetRecords(
         [FromQuery] string? part_name,
         [FromQuery] string? location_code,
