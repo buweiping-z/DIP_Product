@@ -136,3 +136,103 @@ dotnet publish -c Release --self-contained -r win-x64
 **新增避坑经验（memory）：**
 - `soft-delete-restore-on-create.md` — 软删除+唯一索引的创建恢复模式
 - `android-retrofit-gson-generic-erasure.md` — Android Gson 泛型擦除陷阱
+
+### 2026-07-11 — 订单状态机改造 + 库存批次拆分 + 手机端完善
+
+**订单状态机自动流转：**
+- 状态定义：1=待备料、2=待上线、3=已完成、4=已取消
+- 备料全部完成 → 自动 `订单.Status=2`(待上线) + `KitCheckResult=1`
+- 上线全部消耗 → 自动 `订单.Status=3`(已完成)
+- 前端去掉手动改状态下拉框，状态只读
+
+**编辑订单 plan_qty 联动：**
+- plan 增加 → 全部解冻释放库存，`RequiredQty` 按比例更新，备料从头开始
+- plan 减少 → `RequiredQty` 按比例缩小，多余冻结量解冻，明细状态同步
+
+**InventoryLot 批次拆分：**
+- `FreezeCoreAsync` / `ThawCoreAsync` 改为按需拆分而非整批改状态
+- `AddCoreAsync` 空 batchNo 自动生成，确保所有入库都创建 InventoryLot
+- 启动修复：补建缺失批次用 `AvailableQty`(非 TotalQty)，修正数量不一致的批次
+
+**权限修复：**
+- `JwtBearerOptions.MapInboundClaims = false` 解决 JWT role claim 映射导致的管理员权限失效
+
+**替代料移库：**
+- 添加删除功能（后端 `DeleteSubstituteAsync` + `[HttpDelete]` 端点）
+- 操作列宽度 `w-32` → `w-48`
+
+**手机端修复：**
+- 备料全部完成自动关闭扫码窗口 + 回到列表时刷新
+- 退出登录清 token 防自动跳回
+- 上架步骤2库位精确匹配（去空格+不区分大小写），与步骤1已加载的库存列表比对
+- 步骤切换时输入框清空
+- 扫码/输入统一 trim 去空格
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 16 | 管理员导入BOM报无权限 | JWT `role` claim 被 MapInboundClaims 映射为 URI | `MapInboundClaims = false` |
+| 17 | 删除物料/库位后库存表格仍有数据 | 未级联软删除 Inventory/InventoryLot | 删除时同步清理+扣减 CurrentQty |
+| 18 | 备料扫描报"可用库存不足"但库存充足 | 上架入库batchNo为空→未创建InventoryLot | AddCoreAsync 空batchNo自动生成 |
+| 19 | 备料需求数量不对 | RequiredQty 存单台用量未乘 planQty | RequiredQty = BOM用量 × planQty |
+| 20 | 冻结后剩余可用批次丢失 | FreezeCoreAsync 整批改状态未拆分 | 按需拆分：可用部分保留 status=1 |
+| 21 | 编辑订单后状态不更新 | 备完未同步 order.Status；RequiredQty==ActualQty 时未更新明细状态 | 按完成情况同步状态 |
+| 22 | 备料已完成但齐套结果显示未检查 | 备齐时漏设 KitCheckResult | 备齐时设 KitCheckResult=1 |
+| 23 | 产品下拉显示已删除的产品 | ProductBom 的 Part 已删除但自身未删 | GetProductNamesAsync 加 Part 存在性检查 |
+| 24 | 退出登录闪回主画面 | token 未清除，登录页自动验证通过 | onLogout 先 clear tokens 再跳转 |
+| 25 | 上架扫库位无校验 | 未检查同库位不同料号冲突 | 后端 DirectShelvingAsync 加冲突检查 |
+| 26 | 库存编辑移库报"数据已存在" | 同料号移到已有同料号库位→重复冲突 | 同料号合并数量，旧记录清零 |
+
+### 2026-07-11 — 库存冻结前移 + 手机扫码优化 + 出库管理
+
+**库存冻结前移（重大架构变更）：**
+- 订单创建时立即冻结库存（不再等到备料扫描）
+- PrepDetail 新增 Status=3（待补货）：库存不足时标记
+- PrepService.ScanPrepAsync 去冻结逻辑，仅核实条码
+- PrepScanRecords 不再创建，所有解冻/扣减改为直接查 `Inventories.FrozenQty`
+- `FreezeCoreAsync` 内部自动补建缺失批次
+- 编辑订单 plan_qty 变更：解冻→SaveChanges→重新冻结
+- 上架入库自动补冻结（ShelvingService.DirectShelvingAsync 新增 auto-replenish）
+- 仪表盘新增待补货清单表格 + Excel 导出
+
+**出库管理（新模块）：**
+- 后端：OutboundOrder 模型 + OutboundService + OutboundController 完整 CRUD
+- 前端：出库管理页面（搜索/新增/编辑/删除）+ 侧边栏菜单
+- 手机端：出库扫描核销（直接扣减可用库存，不经过冻结）
+- 出库扣减：直接操作 AvailableQty/TotalQty/InventoryLots/WarehouseLocations
+
+**手机端扫码模块优化：**
+- 清除 ZXing 僵尸依赖，纯 ML Kit
+- BarcodeAnalyzer 同码去重改为换码触发（不再依赖时间冷却）
+- QrCodeScanner 相机曝光补偿 +3 级
+- ScannerOverlay 取景框 EvenOdd 挖洞（框内透明）
+- 音效方案：SoundPool + res/raw/ok.wav + ng.wav，闹钟通道最大音量
+- 上架扫描窗口保持打开直到库位匹配成功
+- 上线功能重写：订单列表→料号清单→扫码核对，基于 online_consumed_qty
+- 备料界面去除数量显示，保留库位按库位排序
+- 全部界面接入扫码音效 + 去重
+
+**权限：**
+- 全局过滤器改为仅验证登录（不再限制 admin/leader 角色）
+- AuthController 加入过滤器白名单
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 27 | 订单删除后冻结未解冻 | CancelAsync 依赖 PrepScanRecords，新流程无记录 | 改为查 Inventories.FrozenQty 直接解冻 |
+| 28 | 编辑计划数量冻结不更新 | 解冻后未 SaveChanges 就查库冻结 | 先解冻→SaveChanges→再冻结 |
+| 29 | 上线扫描全部失败 | ConfirmAsync 靠 PrepScanRecords 扣减 | 改为查 Inventories.FrozenQty 扣减 |
+| 30 | 每次启动释放全部冻结 | 启动脚本用 PrepScanRecords 计算应冻量→0 | 改为用 PrepDetails.ActualQty 计算 |
+| 31 | 出库记录每次重启丢失 | 启动脚本 DROP TABLE outbound_orders | 改为 IF NOT EXISTS 建表 |
+| 32 | 操作员无法操作 | RequireManagerFilter 限制 admin/leader | 改为仅验证登录，不限角色 |
+| 33 | 手机登录被拦截 | 过滤器未跳过 AuthController | 添加 AuthController 白名单 |
+| 34 | 上架库存 0 不显示库位 | GetAvailableAsync `>0` 过滤 | 改为 `>=0` |
+| 35 | 上架扫库位找不到 | 后端 Locations 接口缺 `location_code` 参数 | 新增参数支持按编码模糊匹配 |
+
+**新增避坑经验（memory）：**
+- `freeze-on-order-creation.md` — 库存冻结前移完整方案
+- `prep-scan-records-dependency-hell.md` — 废弃数据结构的连锁依赖
+- `startup-data-safety.md` — 启动脚本数据安全
+- `freezecore-auto-create-lot.md` — FreezeCoreAsync 自动补批次
