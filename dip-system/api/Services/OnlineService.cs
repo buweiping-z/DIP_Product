@@ -57,6 +57,30 @@ public class OnlineService
         }
         await _db.SaveChangesAsync();
 
+        // 检查订单所有备料明细是否已全部上线消耗完毕 → 订单完成
+        var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == prep.ProductionOrderId);
+        if (order != null && order.Status == 2)
+        {
+            var allPrepIds = await _db.PrepOrders
+                .Where(p => p.ProductionOrderId == order.Id && p.Status == 2)
+                .Select(p => p.Id).ToListAsync();
+            var allDetailIds = await _db.PrepDetails
+                .Where(d => allPrepIds.Contains(d.PrepOrderId))
+                .Select(d => d.Id).ToListAsync();
+            var totalRequired = await _db.PrepDetails
+                .Where(d => allPrepIds.Contains(d.PrepOrderId))
+                .SumAsync(d => d.RequiredQty);
+            var totalConsumed = await _db.OnlineConfirms
+                .Where(c => allDetailIds.Contains(c.PrepDetailId))
+                .SumAsync(c => c.LoadedQty);
+            if (totalConsumed >= totalRequired)
+            {
+                order.Status = 3;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+
         return new
         {
             id = confirm.Id, prep_order_id = confirm.PrepOrderId,

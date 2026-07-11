@@ -32,6 +32,9 @@ interface ApiService {
     @GET("api/v1/inventory/available/{partId}")
     suspend fun getAvailableInventory(@Path("partId") partId: Int): ApiResponse<List<InventoryAvailable>>
 
+    @GET("api/v1/inventory/check-location")
+    suspend fun checkLocation(@Query("location_code") locationCode: String, @Query("part_id") partId: Int): ApiResponse<Map<String, Any?>>
+
     // ===== Shelving =====
     @POST("api/v1/shelving/direct")
     suspend fun directShelving(@Body request: DirectShelvingRequest): ApiResponse<ShelvingRecord>
@@ -65,9 +68,16 @@ interface ApiService {
     @GET("api/v1/return")
     suspend fun getReturnList(@Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50): ApiResponse<PageResult<ReturnOrderItem>>
 
+    // ===== Orders =====
+    @GET("api/v1/orders")
+    suspend fun getOrders(@Query("status") status: Int): ApiResponse<PageResult<OrderItem>>
+
+    @GET("api/v1/orders/{id}/details")
+    suspend fun getOrderDetail(@Path("id") orderId: Int): ApiResponse<OrderDetail>
+
     // ===== Online =====
     @POST("api/v1/online/confirm")
-    suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<PrepScanResult>
+    suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<Map<String, Any?>>
 
     // ===== Substitute =====
     @POST("api/v1/inventory/substitute")

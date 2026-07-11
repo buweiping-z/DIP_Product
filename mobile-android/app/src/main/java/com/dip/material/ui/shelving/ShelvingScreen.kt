@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.utils.ScanSoundManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,13 +23,27 @@ fun ShelvingScreen(onBack: () -> Unit, viewModel: ShelvingViewModel = viewModel(
     var input by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
 
-    fun onScanned(code: String) {
-        when (state.step) {
-            1 -> viewModel.lookupPart(code)
-            2 -> viewModel.lookupLocation(code)
+    // 切换步骤时清空输入框；到达步骤3时关闭扫描窗口
+    LaunchedEffect(state.step) {
+        input = ""
+        if (state.step == 3) showScanner = false
+    }
+
+    // 扫码结果音效（key 为递增计数器，确保每次扫描都触发）
+    LaunchedEffect(state.scanEventId) {
+        if (state.scanEventId > 0) {
+            if (state.lastScanOk) ScanSoundManager.playSuccess()
+            else ScanSoundManager.playError()
         }
-        input = code
-        showScanner = false
+    }
+
+    fun onScanned(code: String) {
+        val trimmed = code.trim()
+        when (state.step) {
+            1 -> viewModel.lookupPart(trimmed)
+            2 -> viewModel.lookupLocation(trimmed)
+        }
+        // 扫描窗口不关闭，直到第2步库位匹配成功进入第3步时由 LaunchedEffect 关闭
     }
 
     Scaffold(

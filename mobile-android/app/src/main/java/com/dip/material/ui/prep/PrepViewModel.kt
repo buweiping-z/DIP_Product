@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.dip.material.data.models.PrepOrderItem
 import com.dip.material.data.models.PrepDetail
 import com.dip.material.data.repository.AppRepository
+import com.dip.material.utils.ScanSoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,8 @@ data class PrepUiState(
     val orders: List<PrepOrderItem> = emptyList(),
     val selectedOrder: PrepDetail? = null,
     val scanMsg: String? = null,
+    val scanEventId: Int = 0,
+    val lastScanOk: Boolean = false,
     val isLoading: Boolean = false,
     val allDone: Boolean = false
 )
@@ -56,24 +59,33 @@ class PrepViewModel(application: Application) : AndroidViewModel(application) {
                     val data = (res["data"] as? Map<*, *>)
                     val code = (res["code"] as? Double)?.toInt() ?: -1
                     if (code != 0 || data == null) {
-                        _state.update { it.copy(isLoading = false, scanMsg = res["message"] as? String ?: "请求失败") }
+                        ScanSoundManager.playError()
+                        _state.update { it.copy(isLoading = false, scanMsg = res["message"] as? String ?: "请求失败", scanEventId = it.scanEventId + 1, lastScanOk = false) }
                     } else {
                         val matched = data["matched"] as? Boolean ?: false
                         if (!matched) {
-                            _state.update { it.copy(isLoading = false, scanMsg = data["message"] as? String ?: "未匹配到备料明细") }
+                            ScanSoundManager.playError()
+                            _state.update { it.copy(isLoading = false, scanMsg = data["message"] as? String ?: "未匹配到备料明细", scanEventId = it.scanEventId + 1, lastScanOk = false) }
                         } else {
+                            ScanSoundManager.playSuccess()
                             val partNo = data["part_no"] as? String ?: ""
                             val allDone = data["all_done"] as? Boolean ?: false
-                            _state.update { it.copy(isLoading = false, scanMsg = "已备齐: $partNo", allDone = allDone) }
+                            _state.update { it.copy(isLoading = false, scanMsg = "已备齐: $partNo", allDone = allDone, scanEventId = it.scanEventId + 1, lastScanOk = true) }
                             selectOrder(prepId)
                         }
                     }
                 },
-                onFailure = { e -> _state.update { it.copy(isLoading = false, scanMsg = e.message) } }
+                onFailure = { e ->
+                    ScanSoundManager.playError()
+                    _state.update { it.copy(isLoading = false, scanMsg = e.message, scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                }
             )
         }
     }
 
-    fun clearSelection() { _state.update { it.copy(selectedOrder = null) } }
+    fun clearSelection() {
+        _state.update { it.copy(selectedOrder = null, allDone = false) }
+        loadOrders()
+    }
     fun clearMsg() { _state.update { it.copy(scanMsg = null) } }
 }

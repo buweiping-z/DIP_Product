@@ -53,15 +53,24 @@ public class PrepService
         var planQty = order?.PlanQty ?? 1;
         var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prep.Id).ToListAsync();
 
+        // 查询所有明细的上线消耗量
+        var detailIds = details.Select(d => d.Id).ToList();
+        var onlineConsumed = await _db.OnlineConfirms
+            .Where(c => detailIds.Contains(c.PrepDetailId))
+            .GroupBy(c => c.PrepDetailId)
+            .Select(g => new { DetailId = g.Key, Consumed = g.Sum(c => c.LoadedQty) })
+            .ToListAsync();
+
         var detailList = new List<object>();
         foreach (var d in details)
         {
+            var consumed = onlineConsumed.FirstOrDefault(oc => oc.DetailId == d.Id)?.Consumed ?? 0;
             var item = new Dictionary<string, object?>
             {
                 ["id"] = d.Id, ["part_id"] = d.PartId, ["part_no"] = d.PartNo,
                 ["required_qty"] = d.RequiredQty, ["actual_qty"] = d.ActualQty,
                 ["status"] = d.Status, ["substitute_flag"] = d.SubstituteFlag,
-                ["total_required_qty"] = d.RequiredQty * planQty
+                ["total_required_qty"] = d.RequiredQty, ["online_consumed_qty"] = consumed
             };
 
             var inventories = await _db.Inventories.Where(i => i.PartId == d.PartId).ToListAsync();
@@ -185,7 +194,16 @@ public class PrepService
         if (remainingDetails == 0)
         {
             prep.Status = 2;
+            prep.KitCheckResult = 1;
             prep.CompletedAt = DateTime.UtcNow;
+
+            // 订单状态 → 待上线
+            var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == prep.ProductionOrderId);
+            if (order != null && order.Status == 1)
+            {
+                order.Status = 2;
+                order.UpdatedAt = DateTime.UtcNow;
+            }
             await _db.SaveChangesAsync();
         }
 

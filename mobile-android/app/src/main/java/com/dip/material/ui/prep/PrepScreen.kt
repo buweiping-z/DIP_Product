@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.utils.ScanSoundManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,18 +24,28 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     var inputBarcode by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
 
-    // 全部完成后自动返回
+    // 全部完成后自动关闭扫码窗口并返回
     LaunchedEffect(state.allDone) {
         if (state.allDone) {
-            kotlinx.coroutines.delay(1500)
-            onBack()
+            showScanner = false
+            kotlinx.coroutines.delay(800)
+            viewModel.clearSelection()
         }
     }
 
-    // 扫码回调：自动处理，不清空 scanner
+    // 扫码结果音效（key 为递增计数器，确保每次扫描都触发）
+    LaunchedEffect(state.scanEventId) {
+        if (state.scanEventId > 0) {
+            if (state.lastScanOk) ScanSoundManager.playSuccess()
+            else ScanSoundManager.playError()
+        }
+    }
+
+    // 扫码回调
     fun onScanned(code: String) {
-        viewModel.scanItem(code)
-        inputBarcode = code
+        val trimmed = code.trim()
+        viewModel.scanItem(trimmed)
+        inputBarcode = trimmed
     }
 
     Scaffold(

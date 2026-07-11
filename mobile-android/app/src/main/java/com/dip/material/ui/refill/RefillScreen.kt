@@ -34,7 +34,7 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                             Text("缺 ${item.remaining.toInt()}", color = MaterialTheme.colorScheme.error)
                         }
                         Text("备料单: ${item.prepOrderNo} | 产品: ${item.productName}", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { viewModel.scanRefill(barcode.ifBlank { item.partNo }, item.prepOrderId, item.prepDetailId) }, Modifier.fillMaxWidth().padding(top = 4.dp)) { Text("补料 +1") }
+                        Button(onClick = { viewModel.scanRefill(barcode.trim().ifBlank { item.partNo }, item.prepOrderId, item.prepDetailId) }, Modifier.fillMaxWidth().padding(top = 4.dp)) { Text("补料 +1") }
                     }
                 }
             }

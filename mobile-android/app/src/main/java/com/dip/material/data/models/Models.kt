@@ -82,6 +82,7 @@ data class PrepDetailItem(
     @SerializedName("required_qty") val requiredQty: Double,
     @SerializedName("total_required_qty") val totalRequiredQty: Double = 0.0,
     @SerializedName("actual_qty") val actualQty: Double, val status: Int,
+    @SerializedName("online_consumed_qty") val onlineConsumedQty: Double = 0.0,
     val stocks: List<PartStock>? = null
 )
 
@@ -120,12 +121,27 @@ data class ReturnOrderItem(
     @SerializedName("created_at") val createdAt: String?
 )
 
+// ===== Orders =====
+data class OrderItem(
+    val id: Int, @SerializedName("order_no") val orderNo: String,
+    @SerializedName("product_name") val productName: String,
+    @SerializedName("plan_qty") val planQty: Double, val status: Int
+)
+data class OrderDetail(
+    val id: Int, @SerializedName("order_no") val orderNo: String,
+    @SerializedName("product_name") val productName: String,
+    @SerializedName("plan_qty") val planQty: Double, val status: Int,
+    @SerializedName("prep_orders") val prepOrders: List<PrepOrderBrief>?
+)
+data class PrepOrderBrief(val id: Int, @SerializedName("order_no") val orderNo: String, val status: Int)
+
 // ===== Online =====
 data class OnlineConfirmRequest(
-    @SerializedName("prep_order_id") val prepOrderId: Int,
-    @SerializedName("part_no") val partNo: String, val barcode: String,
-    @SerializedName("req_qty") val reqQty: Double? = null,
-    @SerializedName("station_id") val stationId: Int? = null
+    @SerializedName("detail_id") val detailId: Long,
+    val barcode: String,
+    val quantity: Double = 1.0,
+    @SerializedName("station_id") val stationId: Long? = null,
+    @SerializedName("equipment_id") val equipmentId: Long? = null
 )
 
 // ===== Substitute =====

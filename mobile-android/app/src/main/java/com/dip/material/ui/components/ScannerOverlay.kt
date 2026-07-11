@@ -18,9 +18,10 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 扫码取景框覆盖层
- * - 四角边框
- * - 中间区域透明，四周半透明遮罩
- * - 动态扫描线上下移动
+ * - 四角绿色边框
+ * - 取景框内部完全透明（预览清晰可见）
+ * - 取景框外围半透明遮罩
+ * - 动态扫描线
  */
 @Composable
 fun ScannerOverlay(modifier: Modifier = Modifier, isActive: Boolean = true) {
@@ -49,26 +50,41 @@ fun ScannerOverlay(modifier: Modifier = Modifier, isActive: Boolean = true) {
             val frameX = (canvasW - frameW) / 2f
             val frameY = (canvasH - frameH) / 2f
 
-            // 1. 绘制四周遮罩（取景框外部半透明黑色）
-            drawRect(color = Color.Black.copy(alpha = 0.6f), size = size)
-            // 2. 绘制取景框边框（四角）
+            // 1. 绘制四周遮罩（EvenOdd 填充：取景框内部挖洞透明）
+            val maskPath = Path().apply {
+                addRect(Rect(0f, 0f, canvasW, canvasH))
+                addRect(Rect(frameX, frameY, frameX + frameW, frameY + frameH))
+                fillType = PathFillType.EvenOdd
+            }
+            drawPath(maskPath, color = Color.Black.copy(alpha = 0.55f))
+
+            // 2. 取景框白色细边框
+            drawRect(
+                color = Color.White.copy(alpha = 0.35f),
+                topLeft = Offset(frameX, frameY),
+                size = Size(frameW, frameH),
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            // 3. 四角绿色加粗边框
             val cornerColor = Color(0xFF4CAF50)
-            val cornerStroke = Stroke(width = strokeWidth.toPx())
+            val cornerPxW = cornerLength.toPx()
+            val sw = strokeWidth.toPx()
 
             // 左上角
-            drawLine(cornerColor, Offset(frameX, frameY + cornerLength.toPx()), Offset(frameX, frameY), strokeWidth.toPx())
-            drawLine(cornerColor, Offset(frameX, frameY), Offset(frameX + cornerLength.toPx(), frameY), strokeWidth.toPx())
+            drawLine(cornerColor, Offset(frameX, frameY + cornerPxW), Offset(frameX, frameY), sw)
+            drawLine(cornerColor, Offset(frameX, frameY), Offset(frameX + cornerPxW, frameY), sw)
             // 右上角
-            drawLine(cornerColor, Offset(frameX + frameW, frameY + cornerLength.toPx()), Offset(frameX + frameW, frameY), strokeWidth.toPx())
-            drawLine(cornerColor, Offset(frameX + frameW, frameY), Offset(frameX + frameW - cornerLength.toPx(), frameY), strokeWidth.toPx())
+            drawLine(cornerColor, Offset(frameX + frameW - cornerPxW, frameY), Offset(frameX + frameW, frameY), sw)
+            drawLine(cornerColor, Offset(frameX + frameW, frameY), Offset(frameX + frameW, frameY + cornerPxW), sw)
             // 左下角
-            drawLine(cornerColor, Offset(frameX, frameY + frameH - cornerLength.toPx()), Offset(frameX, frameY + frameH), strokeWidth.toPx())
-            drawLine(cornerColor, Offset(frameX, frameY + frameH), Offset(frameX + cornerLength.toPx(), frameY + frameH), strokeWidth.toPx())
+            drawLine(cornerColor, Offset(frameX, frameY + frameH - cornerPxW), Offset(frameX, frameY + frameH), sw)
+            drawLine(cornerColor, Offset(frameX, frameY + frameH), Offset(frameX + cornerPxW, frameY + frameH), sw)
             // 右下角
-            drawLine(cornerColor, Offset(frameX + frameW, frameY + frameH - cornerLength.toPx()), Offset(frameX + frameW, frameY + frameH), strokeWidth.toPx())
-            drawLine(cornerColor, Offset(frameX + frameW, frameY + frameH), Offset(frameX + frameW - cornerLength.toPx(), frameY + frameH), strokeWidth.toPx())
+            drawLine(cornerColor, Offset(frameX + frameW - cornerPxW, frameY + frameH), Offset(frameX + frameW, frameY + frameH), sw)
+            drawLine(cornerColor, Offset(frameX + frameW, frameY + frameH - cornerPxW), Offset(frameX + frameW, frameY + frameH), sw)
 
-            // 3. 绘制扫描线
+            // 4. 扫描线（取景框内部）
             if (isActive) {
                 val lineY = frameY + (frameH * scanYOffset)
                 drawLine(
@@ -79,10 +95,10 @@ fun ScannerOverlay(modifier: Modifier = Modifier, isActive: Boolean = true) {
                 )
                 // 扫描线渐变光晕
                 drawLine(
-                    color = Color(0xFF4CAF50).copy(alpha = 0.3f),
+                    color = Color(0xFF4CAF50).copy(alpha = 0.25f),
                     start = Offset(frameX + 5.dp.toPx(), lineY),
                     end = Offset(frameX + frameW - 5.dp.toPx(), lineY + 20.dp.toPx()),
-                    strokeWidth = 10.dp.toPx()
+                    strokeWidth = 12.dp.toPx()
                 )
             }
         }

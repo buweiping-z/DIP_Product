@@ -39,6 +39,8 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // 禁止 JWT claim 映射：否则 "role" → ClaimTypes.Role URI，导致 FindFirstValue("role") 找不到
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = false,
@@ -99,7 +101,7 @@ using (var scope = app.Services.CreateScope())
 
     var adminRoleId = db.Roles.First(r => r.RoleCode == "admin").Id;
 
-    // 种子管理员账号（不存在则创建，存在则修正RoleId）
+    // 种子管理员账号（不存在则创建，存在则修正RoleId和密码）
     var adminUser = db.Operators.FirstOrDefault(o => o.Username == "admin");
     if (adminUser == null)
     {
@@ -107,16 +109,77 @@ using (var scope = app.Services.CreateScope())
         {
             Username = "admin",
             RealName = "系统管理员",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
             RoleId = adminRoleId,
             Status = 1
         });
     }
-    else if (adminUser.RoleId != adminRoleId)
+    else
     {
-        adminUser.RoleId = adminRoleId;
+        if (adminUser.RoleId != adminRoleId)
+            adminUser.RoleId = adminRoleId;
+        // 每次启动重置密码为 123456
+        adminUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456");
     }
     db.SaveChanges();
+
+    // 清理僵尸库存记录：关联的物料或库位已被软删除的 Inventory
+    var deletedPartIds = db.Parts.IgnoreQueryFilters().Where(p => p.IsDeleted).Select(p => p.Id).ToList();
+    var deletedLocIds = db.WarehouseLocations.IgnoreQueryFilters().Where(l => l.IsDeleted).Select(l => l.Id).ToList();
+
+    if (deletedPartIds.Any() || deletedLocIds.Any())
+    {
+        var zombieInvs = db.Inventories.Where(i =>
+            deletedPartIds.Contains(i.PartId) || deletedLocIds.Contains(i.LocationId)).ToList();
+
+        if (zombieInvs.Any())
+        {
+            // 扣减受影响库位的 CurrentQty（仅库位未被删除的情况）
+            var affectedLocIds = zombieInvs
+                .Where(i => !deletedLocIds.Contains(i.LocationId))
+                .Select(i => i.LocationId).Distinct().ToList();
+            var affectedLocs = db.WarehouseLocations.Where(l => affectedLocIds.Contains(l.Id)).ToList();
+
+            foreach (var inv in zombieInvs)
+            {
+                var loc = affectedLocs.FirstOrDefault(l => l.Id == inv.LocationId);
+                if (loc != null) loc.CurrentQty -= inv.TotalQty;
+                inv.IsDeleted = true;
+            }
+
+            // 同步清理关联的批次记录
+            var zombieLots = db.InventoryLots.Where(l =>
+                deletedPartIds.Contains(l.PartId) || deletedLocIds.Contains(l.LocationId)).ToList();
+            foreach (var lot in zombieLots) lot.IsDeleted = true;
+
+            db.SaveChanges();
+        }
+    }
+
+    // 修复缺失的 InventoryLot：有可用库存但无对应批次记录的，补建默认批次
+    var invsWithoutLots = db.Inventories.Where(i => i.AvailableQty > 0).ToList()
+        .Where(i => !db.InventoryLots.Any(l => l.InventoryId == i.Id)).ToList();
+    foreach (var inv in invsWithoutLots)
+    {
+        db.InventoryLots.Add(new DIP.Api.Models.InventoryLot
+        {
+            InventoryId = inv.Id, PartId = inv.PartId, LocationId = inv.LocationId,
+            BatchNo = $"REPAIR-{DateTime.UtcNow:yyyyMMdd}", Quantity = inv.AvailableQty,
+            Status = 1, ReceiptDate = DateTime.UtcNow, OriginType = 1
+        });
+    }
+    if (invsWithoutLots.Any()) db.SaveChanges();
+
+    // 修复批次数量与可用库存不一致的（之前 TotalQty 造成的错误）
+    var brokenLots = db.InventoryLots.Where(l => l.Status == 1 && l.Quantity > 0).ToList()
+        .Where(l => { var inv = db.Inventories.FirstOrDefault(i => i.Id == l.InventoryId); return inv != null && l.Quantity > inv.AvailableQty; }).ToList();
+    foreach (var lot in brokenLots)
+    {
+        var inv = db.Inventories.First(i => i.Id == lot.InventoryId);
+        lot.Quantity = inv.AvailableQty;
+        if (lot.Quantity <= 0) lot.Status = 3;
+    }
+    if (brokenLots.Any()) db.SaveChanges();
 
     // 修复僵尸冻结库存：根据活跃备料扫描记录重建 FrozenQty
     var frozenInvs = db.Inventories.Where(i => i.FrozenQty > 0).ToList();

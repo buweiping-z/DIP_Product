@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dip.material.data.models.PendingItem
 import com.dip.material.data.repository.AppRepository
+import com.dip.material.utils.ScanSoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,8 +38,8 @@ class RefillViewModel(application: Application) : AndroidViewModel(application) 
     fun scanRefill(barcode: String, prepOrderId: Int, detailId: Int) {
         viewModelScope.launch {
             repo.scanPrepItem(prepOrderId, barcode, detailId).fold(
-                onSuccess = { _state.update { it.copy(scanMsg = "补料成功: $barcode") }; loadPending() },
-                onFailure = { e -> _state.update { it.copy(scanMsg = e.message) } }
+                onSuccess = { ScanSoundManager.playSuccess(); _state.update { it.copy(scanMsg = "补料成功: $barcode") }; loadPending() },
+                onFailure = { e -> ScanSoundManager.playError(); _state.update { it.copy(scanMsg = e.message) } }
             )
         }
     }

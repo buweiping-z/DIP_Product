@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dip.material.data.models.LocationItem
 import com.dip.material.data.repository.AppRepository
+import com.dip.material.utils.ScanSoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,8 +40,8 @@ class ReturnViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             repo.scanReturn(barcode, locId).fold(
-                onSuccess = { _state.update { it.copy(isLoading = false, scanMsg = "退料成功: $barcode", scannedBarcode = "") } },
-                onFailure = { e -> _state.update { it.copy(isLoading = false, scanMsg = e.message) } }
+                onSuccess = { ScanSoundManager.playSuccess(); _state.update { it.copy(isLoading = false, scanMsg = "退料成功: $barcode", scannedBarcode = "") } },
+                onFailure = { e -> ScanSoundManager.playError(); _state.update { it.copy(isLoading = false, scanMsg = e.message) } }
             )
         }
     }

@@ -21,8 +21,9 @@ class AppRepository(val context: Context) {
 
     // Parts & Locations
     suspend fun searchParts(partNo: String) = call { api.getParts(partNo = partNo, pageSize = 5) }
-    suspend fun searchLocations(locationCode: String) = call { api.getLocations(locationCode = locationCode, pageSize = 5) }
+    suspend fun searchLocations(locationCode: String) = call { api.getLocations(locationCode = locationCode, pageSize = 500) }
     suspend fun getAvailableInventory(partId: Int) = call { api.getAvailableInventory(partId) }
+    suspend fun checkLocation(locationCode: String, partId: Int) = call { api.checkLocation(locationCode, partId) }
 
     // Shelving
     suspend fun directShelving(barcode: String, targetLocationCode: String, quantity: Double) =
@@ -46,9 +47,13 @@ class AppRepository(val context: Context) {
         call { api.scanReturn(ReturnScanRequest(barcode, locationId)) }
     suspend fun getReturnList() = call { api.getReturnList() }
 
+    // Orders
+    suspend fun getOrders(status: Int) = call { api.getOrders(status) }
+    suspend fun getOrderDetail(orderId: Int) = call { api.getOrderDetail(orderId) }
+
     // Online
-    suspend fun confirmOnline(prepOrderId: Int, partNo: String, barcode: String) =
-        call { api.confirmOnline(OnlineConfirmRequest(prepOrderId, partNo, barcode)) }
+    suspend fun confirmOnline(detailId: Long, barcode: String, quantity: Double = 1.0) =
+        call { api.confirmOnline(OnlineConfirmRequest(detailId, barcode, quantity)) }
 
     // Substitute
     suspend fun createSubstitute(originalPartId: Int, substitutePartId: Int,

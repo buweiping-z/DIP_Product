@@ -19,7 +19,6 @@ class BarcodeAnalyzer(
 
     @Volatile private var lastCode: String? = null
     @Volatile private var lastTime: Long = 0L
-    private val cooldown = 800L
 
     private val scanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
@@ -30,7 +29,7 @@ class BarcodeAnalyzer(
     override fun analyze(imageProxy: ImageProxy) {
         if (!isActive.get()) { imageProxy.close(); return }
         val now = System.currentTimeMillis()
-        if (now - lastTime < cooldown) { imageProxy.close(); return }
+        if (now - lastTime < 300) { imageProxy.close(); return } // 全局最小间隔
 
         val image = imageProxy.image ?: run { imageProxy.close(); return }
         val inputImage = InputImage.fromMediaImage(image, imageProxy.imageInfo.rotationDegrees)
@@ -40,8 +39,9 @@ class BarcodeAnalyzer(
                 for (barcode in barcodes) {
                     barcode.rawValue?.takeIf { it.isNotEmpty() }?.let {
                         synchronized(this) {
-                            if (it == lastCode && (System.currentTimeMillis() - lastTime) < cooldown) return@let
-                            lastCode = it; lastTime = System.currentTimeMillis()
+                            // 同一条码不重复触发，必须换码才处理
+                            if (it == lastCode) return@let
+                            lastCode = it; lastTime = now
                         }
                         android.os.Handler(android.os.Looper.getMainLooper()).post { onBarcodeScanned(it) }
                     }

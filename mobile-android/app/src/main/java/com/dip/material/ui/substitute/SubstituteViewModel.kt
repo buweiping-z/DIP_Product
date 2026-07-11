@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dip.material.data.repository.AppRepository
+import com.dip.material.utils.ScanSoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +25,8 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             repo.createSubstitute(originalPartId, substitutePartId, sourceLocationId, targetLocationId, quantity).fold(
-                onSuccess = { _state.update { it.copy(isLoading = false, scanMsg = "移库记录已创建") } },
-                onFailure = { e -> _state.update { it.copy(isLoading = false, scanMsg = e.message) } }
+                onSuccess = { ScanSoundManager.playSuccess(); _state.update { it.copy(isLoading = false, scanMsg = "移库记录已创建") } },
+                onFailure = { e -> ScanSoundManager.playError(); _state.update { it.copy(isLoading = false, scanMsg = e.message) } }
             )
         }
     }

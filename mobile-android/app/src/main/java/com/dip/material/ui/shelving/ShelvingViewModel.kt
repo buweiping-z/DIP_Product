@@ -7,6 +7,7 @@ import com.dip.material.data.models.InventoryAvailable
 import com.dip.material.data.models.LocationItem
 import com.dip.material.data.models.PartItem
 import com.dip.material.data.repository.AppRepository
+import com.dip.material.utils.ScanSoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +21,9 @@ data class ShelvingUiState(
     val scannedLocation: LocationItem? = null,
     val quantity: String = "",
     val isLoading: Boolean = false,
-    val resultMsg: String? = null
+    val resultMsg: String? = null,
+    val scanEventId: Int = 0,
+    val lastScanOk: Boolean = false
 )
 
 class ShelvingViewModel(application: Application) : AndroidViewModel(application) {
@@ -34,36 +37,47 @@ class ShelvingViewModel(application: Application) : AndroidViewModel(application
             repo.searchParts(barcode).fold(
                 onSuccess = { res ->
                     val items = res.data?.items ?: emptyList()
-                    if (items.isEmpty())
-                        _state.update { it.copy(isLoading = false, resultMsg = "未找到部品: $barcode") }
-                    else {
+                    if (items.isEmpty()) {
+                        ScanSoundManager.playError()
+                        _state.update { it.copy(isLoading = false, resultMsg = "未找到部品: $barcode", scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                    } else {
                         val part = items.first()
                         repo.getAvailableInventory(part.id).fold(
                             onSuccess = { invRes ->
-                                _state.update { it.copy(scannedPart = part, partLocations = invRes.data ?: emptyList(), isLoading = false, step = 2, resultMsg = null) }
+                                ScanSoundManager.playSuccess()
+                                _state.update { it.copy(scannedPart = part, partLocations = invRes.data ?: emptyList(), isLoading = false, step = 2, resultMsg = null, scanEventId = it.scanEventId + 1, lastScanOk = true) }
                             },
-                            onFailure = { e -> _state.update { it.copy(isLoading = false, resultMsg = e.message) } }
+                            onFailure = { e ->
+                                ScanSoundManager.playError()
+                                _state.update { it.copy(isLoading = false, resultMsg = e.message, scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                            }
                         )
                     }
                 },
-                onFailure = { e -> _state.update { it.copy(isLoading = false, resultMsg = e.message) } }
+                onFailure = { e ->
+                    ScanSoundManager.playError()
+                    _state.update { it.copy(isLoading = false, resultMsg = e.message, scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                }
             )
         }
     }
 
     fun lookupLocation(code: String) {
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
-            repo.searchLocations(code).fold(
-                onSuccess = { res ->
-                    val items = res.data?.items ?: emptyList()
-                    if (items.isEmpty())
-                        _state.update { it.copy(isLoading = false, resultMsg = "未找到库位: $code") }
-                    else
-                        _state.update { it.copy(scannedLocation = items.first(), isLoading = false, step = 3, resultMsg = null) }
-                },
-                onFailure = { e -> _state.update { it.copy(isLoading = false, resultMsg = e.message) } }
-            )
+        val stateVal = _state.value
+        val partLocations = stateVal.partLocations
+        val trimmed = code.trim()
+
+        // 直接在步骤1已加载的部品库存库位列表中精确匹配（去空格 + 不区分大小写）
+        val matched = partLocations.firstOrNull {
+            it.locationCode.trim().equals(trimmed, ignoreCase = true)
+        }
+        if (matched != null) {
+            ScanSoundManager.playSuccess()
+            val loc = com.dip.material.data.models.LocationItem(id = matched.locationId, locationCode = matched.locationCode)
+            _state.update { it.copy(scannedLocation = loc, step = 3, resultMsg = null, scanEventId = it.scanEventId + 1, lastScanOk = true) }
+        } else {
+            ScanSoundManager.playError()
+            _state.update { it.copy(resultMsg = "库位编号错误: $trimmed（不在部品库存列表中）", scanEventId = it.scanEventId + 1, lastScanOk = false) }
         }
     }
 

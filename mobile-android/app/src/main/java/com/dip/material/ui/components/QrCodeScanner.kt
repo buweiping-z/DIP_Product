@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -59,6 +60,27 @@ fun QrCodeScanner(
 
     val analyzer = remember { BarcodeAnalyzer { onBarcodeScanned(it) } }
 
+    // 相机曝光补偿：扫码时提升预览亮度 +3 级
+    val cameraRef = remember { mutableStateOf<Camera?>(null) }
+    DisposableEffect(cameraRef.value) {
+        val cam = cameraRef.value
+        if (cam != null) {
+            val range = cam.cameraInfo.exposureState.exposureCompensationRange
+            val current = cam.cameraInfo.exposureState.exposureCompensationIndex
+            val target = (current + 3).coerceIn(range.lower, range.upper)
+            if (target != current) {
+                cam.cameraControl.setExposureCompensationIndex(target)
+            }
+            onDispose {
+                // 恢复原始曝光值
+                try { cam.cameraControl.setExposureCompensationIndex(current) }
+                catch (_: Exception) {}
+            }
+        } else {
+            onDispose { }
+        }
+    }
+
     Box(modifier) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -73,8 +95,10 @@ fun QrCodeScanner(
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                     analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx), analyzer)
-                    try { cam.unbindAll(); cam.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis) }
-                    catch (_: Exception) {}
+                    try {
+                        cam.unbindAll()
+                        cameraRef.value = cam.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                    } catch (_: Exception) {}
                 }, ContextCompat.getMainExecutor(ctx))
                 previewView
             }
