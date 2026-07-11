@@ -51,6 +51,11 @@ class AppRepository(val context: Context) {
     suspend fun getOrders(status: Int) = call { api.getOrders(status) }
     suspend fun getOrderDetail(orderId: Int) = call { api.getOrderDetail(orderId) }
 
+    // Outbound
+    suspend fun getOutboundOrders(status: Int? = null) = call { api.getOutboundOrders(status = status) }
+    suspend fun confirmOutbound(orderId: Int, barcode: String) =
+        call { api.confirmOutbound(orderId, OutboundConfirmRequest(barcode)) }
+
     // Online
     suspend fun confirmOnline(detailId: Long, barcode: String, quantity: Double = 1.0) =
         call { api.confirmOnline(OnlineConfirmRequest(detailId, barcode, quantity)) }

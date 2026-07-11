@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 export default function ReturnList() {
   const [data, setData] = useState<any[]>([]);
@@ -21,7 +22,13 @@ export default function ReturnList() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">退料记录</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">退料记录</h1>
+        <HelpButton title="退料记录" sections={[
+          { title: '功能概述', items: ['查看退料操作记录，追溯退料原因', '查看退料明细（料号、数量、退回库位）', '手机端扫码退料操作记录汇总'] },
+          { title: '操作流程', items: ['手机端扫码退料，选择退回库位并填写退料原因', '在本页面查看退料记录列表', '点击"详情"查看退料单完整明细'] }
+        ]} />
+      </div>
       <p className="text-gray-500 text-sm mb-4">手机端扫码退料的操作记录</p>
 
       <table className="w-full bg-white rounded-lg shadow">

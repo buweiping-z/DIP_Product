@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 const STATUS_MAP = ['', '待备料', '已完成', '已撤销'];
-const PREP_DETAIL_STATUS = ['', '待备料', '已完成'];
+const PREP_DETAIL_STATUS = ['', '待备料', '已完成', '待补货'];
 const KIT_MAP = ['', '齐套', '短缺', '严重短缺'];
 
 export default function PrepList() {
@@ -30,7 +31,13 @@ export default function PrepList() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">备料管理</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">备料管理</h1>
+        <HelpButton title="备料管理" sections={[
+          { title: '功能概述', items: ['查看备料单及明细，跟踪备料进度', '齐套检查结果显示齐套/短缺状态', '关联工单和产线信息追溯'] },
+          { title: '操作流程', items: ['选择备料单点击"详情"查看备料明细', '手机端扫码进行备料操作，自动冻结所需库存', '全部完成自动更新备料单状态为已完成'] }
+        ]} />
+      </div>
       <table className="w-full bg-white rounded-lg shadow">
         <thead><tr className="bg-gray-50 text-left text-sm">
           <th className="p-3">备料单号</th>
@@ -83,26 +90,16 @@ export default function PrepList() {
                 <thead><tr className="bg-gray-100">
                   <th className="p-2 text-left">#</th>
                   <th className="p-2 text-left">料号</th>
-                  <th className="p-2 text-right">总需求数量</th>
-                  <th className="p-2 text-right">已备数量</th>
                   <th className="p-2 text-left">库存位置</th>
-                  <th className="p-2 text-right">库存数量</th>
                   <th className="p-2 text-center">状态</th>
                 </tr></thead>
                 <tbody>{(detailData.details || []).map((d: any, idx: number) => (
                   <tr key={d.id} className="border-t">
                     <td className="p-2">{idx + 1}</td>
                     <td className="p-2 font-mono">{d.part_no}</td>
-                    <td className="p-2 text-right font-medium">{d.total_required_qty}</td>
-                    <td className="p-2 text-right">{d.actual_qty}</td>
                     <td className="p-2 text-sm text-gray-500">
                       {(d.stocks || []).length > 0
                         ? d.stocks.map((s: any) => s.location_code).join(', ')
-                        : '-'}
-                    </td>
-                    <td className="p-2 text-right">
-                      {(d.stocks || []).length > 0
-                        ? d.stocks.map((s: any) => s.available_qty).join(', ')
                         : '-'}
                     </td>
                     <td className="p-2 text-center">{PREP_DETAIL_STATUS[d.status] || d.status}</td>

@@ -84,6 +84,13 @@ public class PrepService
             detailList.Add(item);
         }
 
+        // 按库位排序，同一库位的物料排在一起方便取料
+        detailList = detailList.OrderBy(d =>
+        {
+            var stocks = (d as Dictionary<string, object?>)!["stocks"] as List<object>;
+            return (stocks?.FirstOrDefault() as dynamic)?.location_code ?? "";
+        }).ToList();
+
         return new
         {
             prep.Id, order_no = prep.OrderNo, production_order_id = prep.ProductionOrderId,
@@ -159,35 +166,11 @@ public class PrepService
         }
         if (detail == null) return new { matched = false, message = "未匹配到备料明细" };
 
-        var remaining = detail.RequiredQty - detail.ActualQty;
-        if (remaining <= 0) return new { matched = false, message = "该物料已备齐" };
+        if (detail.Status == 2) return new { matched = false, message = "该物料已备齐" };
+        if (detail.Status == 3) return new { matched = false, message = "该物料库存不足，请先上架补货" };
 
-        var invSvc = new InventoryService(_db);
-        var lots = await invSvc.GetFifoLotsAsync(detail.PartId, remaining);
-        if (lots.Count == 0) throw AppException.Business("可用库存不足");
-
-        // 一次冻结全部剩余数量
-        var totalFrozen = 0m;
-        foreach (var lot in lots)
-        {
-            if (totalFrozen >= remaining) break;
-            var qty = Math.Min(lot.Quantity, remaining - totalFrozen);
-            var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == lot.InventoryId);
-            var locId = inv?.LocationId ?? 0;
-
-            _db.PrepScanRecords.Add(new PrepScanRecord
-            {
-                PrepDetailId = detail.Id, SourceLocationId = locId,
-                BatchNo = lot.BatchNo, Quantity = qty,
-                ScannedBarcode = barcode, OperatorId = operatorId
-            });
-
-            await invSvc.FreezeCoreAsync(detail.PartId, locId, qty, operatorId, "PrepFreeze", prepId);
-            totalFrozen += qty;
-        }
-
-        detail.ActualQty += totalFrozen;
-        if (detail.ActualQty >= detail.RequiredQty) detail.Status = 2;
+        // 库存已在订单创建时冻结，此处仅核实条码
+        detail.Status = 2;
         await _db.SaveChangesAsync();
 
         var remainingDetails = await _db.PrepDetails.CountAsync(d => d.PrepOrderId == prepId && d.Status != 2);
@@ -291,9 +274,27 @@ public class PrepService
         var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId && d.ActualQty > 0).ToListAsync();
         foreach (var d in details)
         {
+            // 尝试从 PrepScanRecords 解冻（旧流程兼容），没有则从冻结库存直接解冻
             var scans = await _db.PrepScanRecords.Where(s => s.PrepDetailId == d.Id).ToListAsync();
-            foreach (var scan in scans)
-                await invSvc.ThawCoreAsync(d.PartId, scan.SourceLocationId, scan.Quantity, operatorId, "PrepThaw", prepId);
+            if (scans.Any())
+            {
+                foreach (var scan in scans)
+                    await invSvc.ThawCoreAsync(d.PartId, scan.SourceLocationId, scan.Quantity, operatorId, "PrepThaw", prepId);
+            }
+            else
+            {
+                // 新流程：直接从冻结库存解冻（按 FrozenQty 分配到各库位）
+                var frozenInvs = await _db.Inventories
+                    .Where(i => i.PartId == d.PartId && i.FrozenQty > 0).ToListAsync();
+                var remaining = d.ActualQty;
+                foreach (var inv in frozenInvs)
+                {
+                    if (remaining <= 0) break;
+                    var qty = Math.Min(remaining, inv.FrozenQty);
+                    await invSvc.ThawCoreAsync(d.PartId, inv.LocationId, qty, operatorId, "PrepThaw", prepId);
+                    remaining -= qty;
+                }
+            }
         }
         prep.Status = 3;
         await _db.SaveChangesAsync();

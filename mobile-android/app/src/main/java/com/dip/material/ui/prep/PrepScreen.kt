@@ -79,10 +79,15 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
 
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-                state.scanMsg?.let {
-                    val isError = it.contains("未匹配") || it.contains("不足")
-                    Text(it, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 16.dp), fontSize = 14.sp)
+                state.scanMsg?.let { msg ->
+                    val isError = msg.contains("未匹配") || msg.contains("不足")
+                    Surface(
+                        color = if (isError) Color(0xFFD32F2F) else Color(0xFF388E3C),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    ) {
+                        Text(msg, color = Color.White,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp)
+                    }
                 }
 
                 // 备料明细
@@ -91,18 +96,34 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                         item { Text("备料单: ${order.orderNo} | 产品: ${order.productName}", style = MaterialTheme.typography.titleSmall) }
                         order.details?.let { details ->
                             items(details) { d ->
+                                val isDone = d.status == 2
+                                val isShort = d.status == 3
                                 Card(Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (d.status == 2) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surface)) {
+                                        containerColor = when {
+                                            isDone -> MaterialTheme.colorScheme.primaryContainer
+                                            isShort -> MaterialTheme.colorScheme.errorContainer
+                                            else -> MaterialTheme.colorScheme.surface
+                                        })) {
                                     Column(Modifier.padding(10.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(d.partNo, style = MaterialTheme.typography.titleSmall)
-                                            Text(if (d.status == 2) "✓" else "${d.actualQty.toInt()}/${d.totalRequiredQty.toInt()}",
-                                                color = if (d.status == 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                            Text(
+                                                when {
+                                                    isDone -> "✓"
+                                                    isShort -> "缺货"
+                                                    else -> "待确认"
+                                                },
+                                                color = when {
+                                                    isDone -> Color(0xFF4CAF50)
+                                                    isShort -> MaterialTheme.colorScheme.error
+                                                    else -> Color.Gray
+                                                },
+                                                fontSize = 14.sp
+                                            )
                                         }
                                         d.stocks?.takeIf { it.isNotEmpty() }?.let { stocks ->
-                                            Text(stocks.joinToString(" | ") { "${it.locationCode}:${it.availableQty.toInt()}" },
+                                            Text(stocks.joinToString(" | ") { "${it.locationCode}" },
                                                 style = MaterialTheme.typography.bodySmall, fontSize = 11.sp)
                                         }
                                     }

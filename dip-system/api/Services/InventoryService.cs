@@ -47,8 +47,9 @@ public class InventoryService
 
         inv.TotalQty += qty;
         inv.AvailableQty += qty;
-        if (!string.IsNullOrEmpty(batchNo))
-            await AddLotAsync(inv, partId, locationId, batchNo, qty);
+        if (string.IsNullOrEmpty(batchNo))
+            batchNo = $"BN{DateTime.UtcNow:yyyyMMddHHmmss}";
+        await AddLotAsync(inv, partId, locationId, batchNo, qty);
 
         int mt = referenceType == "ReturnIn" ? 4 : 1;
         _db.StockMovements.Add(new StockMovement
@@ -83,11 +84,37 @@ public class InventoryService
         foreach (var lot in lots)
         {
             if (remaining <= 0) break;
-            lot.Status = 2;
-            lot.Version++;
-            remaining -= lot.Quantity;
+            if (remaining < lot.Quantity)
+            {
+                // 部分冻结：拆分批次 — 冻结部分新建，剩余保持可用
+                _db.InventoryLots.Add(new InventoryLot
+                {
+                    InventoryId = inv.Id, PartId = partId, LocationId = locationId,
+                    BatchNo = lot.BatchNo, Quantity = remaining,
+                    Status = 2, ReceiptDate = lot.ReceiptDate, OriginType = lot.OriginType
+                });
+                lot.Quantity -= remaining;
+                lot.Version++;
+                remaining = 0;
+            }
+            else
+            {
+                // 整批冻结
+                remaining -= lot.Quantity;
+                lot.Status = 2;
+                lot.Version++;
+            }
         }
-        if (remaining > 0) throw AppException.Business("可用批次不足");
+        // 批次不足时自动补建（兼容旧数据没有批次记录的情况）
+        if (remaining > 0)
+        {
+            _db.InventoryLots.Add(new InventoryLot
+            {
+                InventoryId = inv.Id, PartId = partId, LocationId = locationId,
+                BatchNo = $"AF-{DateTime.UtcNow:yyyyMMddHHmmss}", Quantity = remaining,
+                Status = 2, ReceiptDate = DateTime.UtcNow, OriginType = 1
+            });
+        }
 
         _db.StockMovements.Add(new StockMovement
         {
@@ -195,9 +222,26 @@ public class InventoryService
         foreach (var lot in lots)
         {
             if (remaining <= 0) break;
-            lot.Status = 1;
-            lot.Version++;
-            remaining -= lot.Quantity;
+            if (remaining < lot.Quantity)
+            {
+                // 部分解冻：拆分批次 — 解冻部分新建，剩余保持冻结
+                _db.InventoryLots.Add(new InventoryLot
+                {
+                    InventoryId = inv.Id, PartId = partId, LocationId = locationId,
+                    BatchNo = lot.BatchNo, Quantity = remaining,
+                    Status = 1, ReceiptDate = lot.ReceiptDate, OriginType = lot.OriginType
+                });
+                lot.Quantity -= remaining;
+                lot.Version++;
+                remaining = 0;
+            }
+            else
+            {
+                // 整批解冻
+                remaining -= lot.Quantity;
+                lot.Status = 1;
+                lot.Version++;
+            }
         }
 
         _db.StockMovements.Add(new StockMovement
@@ -314,16 +358,35 @@ public class InventoryService
             if (newLoc == null) throw AppException.NotFound($"库位 {locationCode} 不存在");
             if (newLoc.Id != oldLocationId)
             {
-                // 检查目标库位是否已有不同料号
+                // 检查目标库位是否已有库存
+                var existing = await _db.Inventories.FirstOrDefaultAsync(i =>
+                    i.LocationId == newLoc.Id && i.PartId == inv.PartId);
                 var conflict = await _db.Inventories.FirstOrDefaultAsync(i =>
                     i.LocationId == newLoc.Id && i.PartId != inv.PartId);
+
                 if (conflict != null)
                     throw AppException.Business($"库位 {locationCode} 已有其他料号，不能放入不同料号");
 
                 var oldLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == oldLocationId);
                 if (oldLoc != null) oldLoc.CurrentQty -= oldTotalQty;
-                newLoc.CurrentQty += inv.TotalQty;
-                inv.LocationId = newLoc.Id;
+
+                if (existing != null)
+                {
+                    // 同料号已存在目标库位 → 合并
+                    existing.TotalQty += inv.TotalQty;
+                    existing.AvailableQty += inv.AvailableQty;
+                    // 来源记录清零并软删除
+                    inv.TotalQty = 0;
+                    inv.AvailableQty = 0;
+                    inv.FrozenQty = 0;
+                    inv.IsDeleted = true;
+                    newLoc.CurrentQty += oldTotalQty;
+                }
+                else
+                {
+                    newLoc.CurrentQty += inv.TotalQty;
+                    inv.LocationId = newLoc.Id;
+                }
             }
             else if (totalQty.HasValue)
             {
@@ -379,7 +442,7 @@ public class InventoryService
 
     public async Task<List<object>> GetAvailableAsync(long partId)
     {
-        var invs = await _db.Inventories.Where(i => i.PartId == partId && i.AvailableQty > 0).ToListAsync();
+        var invs = await _db.Inventories.Where(i => i.PartId == partId && i.AvailableQty >= 0).ToListAsync();
         var result = new List<object>();
         foreach (var i in invs)
         {
@@ -509,6 +572,31 @@ public class InventoryService
                 created_at = r.CreatedAt, confirmed_at = r.ConfirmedAt
             })
         };
+    }
+
+    public async Task<object> CheckLocationAsync(string locationCode, long partId)
+    {
+        var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == locationCode);
+        if (loc == null) return new { ok = false, message = $"库位 {locationCode} 不存在" };
+
+        var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == partId);
+        var conflict = await _db.Inventories.FirstOrDefaultAsync(i =>
+            i.LocationId == loc.Id && i.PartId != partId && i.TotalQty > 0);
+        if (conflict != null)
+        {
+            var conflictPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == conflict.PartId);
+            return new { ok = false, message = $"库位 {locationCode} 已有料号 {conflictPart?.PartNo ?? "?"}，不能放入 {part?.PartNo ?? "?"}" };
+        }
+        return new { ok = true, location_code = loc.LocationCode, part_no = part?.PartNo ?? "" };
+    }
+
+    public async Task DeleteSubstituteAsync(long recordId)
+    {
+        var r = await _db.SubstituteRecords.FirstOrDefaultAsync(s => s.Id == recordId);
+        if (r == null) throw AppException.NotFound($"移库记录 {recordId} 不存在");
+        if (r.Status != 1) throw AppException.Business("仅待确认的记录可删除");
+        _db.SubstituteRecords.Remove(r);
+        await _db.SaveChangesAsync();
     }
 
     public async Task<object> GetSubstituteByIdAsync(long id)

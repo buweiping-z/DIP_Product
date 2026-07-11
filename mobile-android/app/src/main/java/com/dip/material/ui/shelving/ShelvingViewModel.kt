@@ -67,17 +67,38 @@ class ShelvingViewModel(application: Application) : AndroidViewModel(application
         val partLocations = stateVal.partLocations
         val trimmed = code.trim()
 
-        // 直接在步骤1已加载的部品库存库位列表中精确匹配（去空格 + 不区分大小写）
+        // 先匹配已有库存的库位
         val matched = partLocations.firstOrNull {
             it.locationCode.trim().equals(trimmed, ignoreCase = true)
         }
         if (matched != null) {
             ScanSoundManager.playSuccess()
-            val loc = com.dip.material.data.models.LocationItem(id = matched.locationId, locationCode = matched.locationCode)
+            val loc = LocationItem(id = matched.locationId, locationCode = matched.locationCode)
             _state.update { it.copy(scannedLocation = loc, step = 3, resultMsg = null, scanEventId = it.scanEventId + 1, lastScanOk = true) }
-        } else {
-            ScanSoundManager.playError()
-            _state.update { it.copy(resultMsg = "库位编号错误: $trimmed（不在部品库存列表中）", scanEventId = it.scanEventId + 1, lastScanOk = false) }
+            return
+        }
+
+        // 库存为空或库位不在已有列表 → 查全部库位
+        viewModelScope.launch {
+            repo.searchLocations(trimmed).fold(
+                onSuccess = { res ->
+                    val items = res.data?.items ?: emptyList()
+                    val loc = items.firstOrNull {
+                        it.locationCode.trim().equals(trimmed, ignoreCase = true)
+                    }
+                    if (loc != null) {
+                        ScanSoundManager.playSuccess()
+                        _state.update { it.copy(scannedLocation = loc, step = 3, resultMsg = null, scanEventId = it.scanEventId + 1, lastScanOk = true) }
+                    } else {
+                        ScanSoundManager.playError()
+                        _state.update { it.copy(resultMsg = "库位编号不存在: $trimmed", scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                    }
+                },
+                onFailure = { e ->
+                    ScanSoundManager.playError()
+                    _state.update { it.copy(resultMsg = e.message, scanEventId = it.scanEventId + 1, lastScanOk = false) }
+                }
+            )
         }
     }
 

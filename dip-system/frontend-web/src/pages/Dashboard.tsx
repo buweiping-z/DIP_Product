@@ -72,8 +72,46 @@ export default function Dashboard() {
               </div>
               <div className="text-sm text-gray-500 mt-1">已缺料</div>
             </div>
+            <div className={`flex-1 rounded-lg p-4 text-center ${inventory_alerts.pending_replenish > 0 ? 'bg-orange-50' : 'bg-gray-50'}`}>
+              <div className={`text-3xl font-bold ${inventory_alerts.pending_replenish > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                {inventory_alerts.pending_replenish}
+              </div>
+              <div className="text-sm text-gray-500 mt-1">待补货</div>
+            </div>
           </div>
         </div>
+
+        {/* Pending Replenish Table */}
+        {(inventory_alerts.pending_replenish_items?.length > 0) && (
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">待补货清单</h2>
+              <a href="/api/v1/dashboard/export-replenish" className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">导出Excel</a>
+            </div>
+            <table className="w-full text-sm">
+              <thead><tr className="bg-orange-50 text-left">
+                <th className="p-2">订单号</th>
+                <th className="p-2">产品</th>
+                <th className="p-2">料号</th>
+                <th className="p-2">库位</th>
+                <th className="p-2 text-right">需求</th>
+                <th className="p-2 text-right">已冻结</th>
+                <th className="p-2 text-right text-red-600">缺料</th>
+              </tr></thead>
+              <tbody>{inventory_alerts.pending_replenish_items.map((item: any, idx: number) => (
+                <tr key={idx} className="border-t">
+                  <td className="p-2 font-mono text-xs">{item.order_no}</td>
+                  <td className="p-2">{item.product_name}</td>
+                  <td className="p-2 font-mono text-xs">{item.part_no}</td>
+                  <td className="p-2 font-mono text-xs">{(item.location_codes || []).join(', ')}</td>
+                  <td className="p-2 text-right">{item.required_qty}</td>
+                  <td className="p-2 text-right">{item.frozen_qty}</td>
+                  <td className="p-2 text-right text-red-600 font-bold">{item.shortage}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
 
         {/* Today Operations */}
         <div className="bg-white rounded-lg shadow p-6">

@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dip.material.ui.components.QrCodeScanner
@@ -117,10 +118,12 @@ fun ShelvingScreen(onBack: () -> Unit, viewModel: ShelvingViewModel = viewModel(
                         }
                     }
                 }
-                state.resultMsg?.let {
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
-                        containerColor = if (it.contains("成功")) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) {
-                        Text(it, modifier = Modifier.padding(12.dp))
+                state.resultMsg?.let { msg ->
+                    Surface(
+                        color = if (msg.contains("成功")) Color(0xFF388E3C) else Color(0xFFD32F2F),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(msg, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp)
                     }
                 }
             }

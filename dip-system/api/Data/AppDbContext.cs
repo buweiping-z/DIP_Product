@@ -64,6 +64,9 @@ public class AppDbContext : DbContext
     // ===== 替代料记录 =====
     public DbSet<SubstituteRecord> SubstituteRecords { get; set; }
 
+    // ===== 出库 =====
+    public DbSet<OutboundOrder> OutboundOrders { get; set; }
+
     // ===== 审计 =====
     public DbSet<ScanRecord> ScanRecords { get; set; }
     public DbSet<SystemLog> SystemLogs { get; set; }
@@ -100,6 +103,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockCount>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<StockCountItem>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OrderClosure>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<OutboundOrder>().HasQueryFilter(e => !e.IsDeleted);
 
         // ===== 表名映射 =====
         modelBuilder.Entity<Role>(e => e.ToTable("roles"));
@@ -135,6 +139,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ScanRecord>(e => e.ToTable("scan_records"));
         modelBuilder.Entity<SystemLog>(e => e.ToTable("system_logs"));
         modelBuilder.Entity<OrderClosure>(e => e.ToTable("order_closures"));
+        modelBuilder.Entity<OutboundOrder>(e => e.ToTable("outbound_orders"));
 
         // ===== 唯一索引 =====
         modelBuilder.Entity<Role>().HasIndex(e => e.RoleCode).IsUnique().HasDatabaseName("uq_roles_code");
@@ -151,6 +156,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<TransferOrder>().HasIndex(e => e.OrderNo).IsUnique().HasDatabaseName("uq_transfer_orders_no");
         modelBuilder.Entity<StockCount>().HasIndex(e => e.CountNo).IsUnique().HasDatabaseName("uq_stock_counts_no");
         modelBuilder.Entity<OrderClosure>().HasIndex(e => e.ProductionOrderId).IsUnique().HasDatabaseName("uq_order_closures_order");
+        modelBuilder.Entity<OutboundOrder>().HasIndex(e => e.OrderNo).IsUnique().HasDatabaseName("uq_outbound_orders_no");
 
         // ===== 外键 + 级联删除 =====
         modelBuilder.Entity<BomItem>()

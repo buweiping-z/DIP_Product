@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import api from '../lib/api';
-import { showToast } from '../lib/toast';
+import HelpButton from '../lib/HelpButton';
 
 export default function InventoryList() {
   const [data, setData] = useState<any[]>([]);
@@ -11,12 +11,6 @@ export default function InventoryList() {
   const [isManager, setIsManager] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<any>(null);
-
-  // edit state
-  const [showEdit, setShowEdit] = useState(false);
-  const [editItem, setEditItem] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ total_qty: 0, available_qty: 0, location_code: '' });
-  const [allLocations, setAllLocations] = useState<any[]>([]);
 
   // import report
   const [report, setReport] = useState<any>(null);
@@ -60,27 +54,12 @@ export default function InventoryList() {
     e.target.value = '';
   };
 
-  const openEdit = async (item: any) => {
-    setEditItem(item);
-    setEditForm({ total_qty: item.total_qty, available_qty: item.available_qty, location_code: item.location_code || '' });
-    try { setAllLocations((await api.get('/locations?page=1&page_size=500')).data?.items || []); } catch {}
-    setShowEdit(true);
-  };
-
-  const handleEdit = async () => {
-    try {
-      await api.put(`/inventory/${editItem.id}`, { total_qty: editForm.total_qty, available_qty: editForm.available_qty, location_code: editForm.location_code });
-      showToast('更新成功', 'success');
-      setShowEdit(false);
-      fetchData();
-    } catch {}
-  };
-
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">库存管理</h1>
         <div className="flex gap-2">
+          <HelpButton title="库存管理" sections={[{ title: '功能概述', items: ['查看所有物料的库存状态：总数量、可用数量、冻结数量', '按料号或库位编码搜索过滤', '管理员可通过 Excel 导入库存数据', '库存数量由系统自动计算（备料冻结/上线消耗/出库扣减），禁止手动修改'] }, { title: '操作流程', items: ['1. 点击"导入库存"上传 Excel（管理员）→ 系统自动校验并写入', '2. 下载模板 → 按模板格式填写 → 上传', '3. 搜索栏输入料号或库位快速定位', '4. 可用数量 = 总数量 - 冻结数量，冻结来自备料扫描'] }]} />
           {isManager && (
             <button onClick={() => fileRef.current?.click()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">导入库存</button>
           )}
@@ -135,7 +114,6 @@ export default function InventoryList() {
           <thead><tr className="bg-gray-50 text-left text-sm">
             <th className="p-3">料号</th><th className="p-3">物料名称</th><th className="p-3">库位</th>
             <th className="p-3 text-right">总数量</th><th className="p-3 text-right">可用</th><th className="p-3 text-right">冻结</th>
-            {isManager && <th className="p-3 w-16">操作</th>}
           </tr></thead>
           <tbody>{data.map(i => (
             <tr key={i.id} className="border-t hover:bg-gray-50">
@@ -145,53 +123,9 @@ export default function InventoryList() {
               <td className="p-3 text-right">{i.total_qty}</td>
               <td className="p-3 text-right text-green-600">{i.available_qty}</td>
               <td className="p-3 text-right text-orange-600">{i.frozen_qty}</td>
-              {isManager && (
-                <td className="p-3">
-                  <button onClick={() => openEdit(i)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                </td>
-              )}
             </tr>
           ))}</tbody>
         </table>
-      )}
-
-      {/* Edit Dialog */}
-      {showEdit && editItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[400px]">
-            <h2 className="text-xl font-bold mb-4">编辑库存</h2>
-            <p className="text-sm text-gray-500 mb-4">料号: {editItem.part_no} / 物料: {editItem.part_name}</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">库位编码</label>
-                <input className="w-full border p-2 rounded" value={editForm.location_code}
-                  onChange={e => setEditForm({ ...editForm, location_code: e.target.value })}
-                  list="location-list" placeholder="输入库位编码搜索" />
-                <datalist id="location-list">
-                  {allLocations.map((l: any) => <option key={l.id} value={l.location_code} />)}
-                </datalist>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">总数量</label>
-                <input type="number" className="w-full border p-2 rounded" value={editForm.total_qty}
-                  onChange={e => setEditForm({ ...editForm, total_qty: Number(e.target.value) })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">可用数量</label>
-                <input type="number" className="w-full border p-2 rounded" value={editForm.available_qty}
-                  onChange={e => setEditForm({ ...editForm, available_qty: Number(e.target.value) })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">冻结数量（只读）</label>
-                <input className="w-full border p-2 rounded bg-gray-100" value={editItem.frozen_qty} disabled />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowEdit(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
-              <button onClick={handleEdit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">保存</button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

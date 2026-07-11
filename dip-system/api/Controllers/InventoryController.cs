@@ -7,6 +7,7 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/inventory")]
 public class InventoryController : ControllerBase
 {
@@ -34,8 +35,11 @@ public class InventoryController : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "inventory_template.xlsx");
     }
 
+    [HttpGet("check-location")]
+    public async Task<IActionResult> CheckLocation([FromQuery] string location_code, [FromQuery] long part_id)
+        => Ok(ApiResponse.Ok(await _svc.CheckLocationAsync(location_code, part_id)));
+
     [HttpPost("import")]
-    [Authorize]
     public async Task<IActionResult> Import(IFormFile file)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -46,7 +50,6 @@ public class InventoryController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize]
     public async Task<IActionResult> Update(long id, [FromBody] UpdateInventoryRequest req)
         => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.TotalQty, req.AvailableQty, req.LocationCode), "更新成功"));
 
@@ -73,6 +76,13 @@ public class InventoryController : ControllerBase
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "1");
         await _svc.ConfirmSubstituteAsync(recordId, userId);
         return Ok(ApiResponse.Ok(null, "替代料移库已确认"));
+    }
+
+    [HttpDelete("substitute/{id}")]
+    public async Task<IActionResult> DeleteSubstitute(long id)
+    {
+        await _svc.DeleteSubstituteAsync(id);
+        return Ok(ApiResponse.Ok(null, "删除成功"));
     }
 }
 

@@ -7,9 +7,10 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+    [Authorize]
 [Route("api/v1/prep")]
-public class PrepController : ControllerBase
-{
+
+public class PrepController : ControllerBase {
     private readonly PrepService _svc;
 
     public PrepController(PrepService svc) { _svc = svc; }
@@ -39,7 +40,6 @@ public class PrepController : ControllerBase
     public async Task<IActionResult> KitCheck(long id) => Ok(ApiResponse.Ok(await _svc.KitCheckAsync(id)));
 
     [HttpPost("{id}/scan")]
-    [Authorize]
     public async Task<IActionResult> ScanPrep(long id, [FromBody] ScanPrepRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -48,7 +48,6 @@ public class PrepController : ControllerBase
     }
 
     [HttpPost("{id}/cancel")]
-    [Authorize]
     public async Task<IActionResult> Cancel(long id)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -59,6 +58,7 @@ public class PrepController : ControllerBase
     [HttpGet("pending")]
     public async Task<IActionResult> GetPendingItems() => Ok(ApiResponse.Ok(await _svc.GetPendingItemsAsync()));
 }
+
 
 public class ScanPrepRequest
 {

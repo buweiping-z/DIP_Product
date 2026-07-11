@@ -7,6 +7,7 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/shelving")]
 public class ShelvingController : ControllerBase
 {
@@ -23,7 +24,6 @@ public class ShelvingController : ControllerBase
     public async Task<IActionResult> GetBatch(long id) => Ok(ApiResponse.Ok(await _svc.GetBatchAsync(id)));
 
     [HttpPost("batch")]
-    [Authorize]
     public async Task<IActionResult> CreateBatch([FromBody] CreateBatchRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -31,7 +31,6 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpPost("batch/{id}/scan")]
-    [Authorize]
     public async Task<IActionResult> ScanItem(long id, [FromBody] ScanItemRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -39,7 +38,6 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpPost("batch/{id}/confirm")]
-    [Authorize]
     public async Task<IActionResult> ConfirmBatch(long id)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -48,7 +46,6 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpPost("batch/{id}/cancel")]
-    [Authorize]
     public async Task<IActionResult> CancelBatch(long id)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -57,7 +54,6 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpPost("direct")]
-    [Authorize]
     public async Task<IActionResult> DirectShelving([FromBody] DirectShelvingRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -65,7 +61,6 @@ public class ShelvingController : ControllerBase
     }
 
     [HttpGet("records")]
-    [Authorize]
     public async Task<IActionResult> GetRecords(
         [FromQuery] string? part_name,
         [FromQuery] string? location_code,
@@ -77,7 +72,9 @@ public class ShelvingController : ControllerBase
 }
 
 public class CreateBatchRequest { public long TargetLocationId { get; set; } }
+
 public class ScanItemRequest { public string Barcode { get; set; } = ""; }
+
 public class DirectShelvingRequest
 {
     public string Barcode { get; set; } = "";

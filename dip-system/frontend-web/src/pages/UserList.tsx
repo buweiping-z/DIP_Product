@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
+import HelpButton from '../lib/HelpButton';
 
 export default function UserList() {
   const [data, setData] = useState<any[]>([]);
@@ -111,6 +112,10 @@ export default function UserList() {
           )}
           <button onClick={() => { setPwdForm({ old_password: '', new_password: '', confirm_password: '' }); setShowPwdDialog(true); }}
             className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">修改密码</button>
+          <HelpButton title="用户管理" sections={[
+            { title: '功能概述', items: ['管理系统用户账号和角色分配', '支持密码重置和修改密码', '不同角色拥有不同系统操作权限'] },
+            { title: '操作流程', items: ['管理员点击"新建用户"创建账号并分配角色', '编辑用户信息或重置密码', '用户自行修改登录密码'] }
+          ]} />
         </div>
       </div>
 

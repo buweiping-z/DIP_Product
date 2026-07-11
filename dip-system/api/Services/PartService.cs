@@ -108,6 +108,25 @@ public class PartService
         var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == partId);
         if (part == null) throw AppException.NotFound($"物料 {partId} 不存在");
         part.IsDeleted = true;
+
+        // 清理该物料的所有库存记录
+        var inventories = await _db.Inventories.Where(i => i.PartId == partId).ToListAsync();
+        var locationIds = inventories.Select(i => i.LocationId).Distinct().ToList();
+        var locations = await _db.WarehouseLocations.Where(l => locationIds.Contains(l.Id)).ToListAsync();
+
+        foreach (var inv in inventories)
+        {
+            // 扣减对应库位的当前数量
+            var loc = locations.FirstOrDefault(l => l.Id == inv.LocationId);
+            if (loc != null) loc.CurrentQty -= inv.TotalQty;
+
+            inv.IsDeleted = true;
+        }
+
+        // 清理该物料的所有批次记录
+        var lots = await _db.InventoryLots.Where(l => l.PartId == partId).ToListAsync();
+        foreach (var lot in lots) lot.IsDeleted = true;
+
         await _db.SaveChangesAsync();
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 const SMAP = ['', '待确认', '已确认'];
 
@@ -121,6 +122,10 @@ export default function SubstituteList() {
             className={`px-4 py-1.5 rounded text-sm ${tab === 'history' ? 'bg-gray-700 text-white' : 'bg-gray-200'}`}>
             移库记录
           </button>
+          <HelpButton title="替代料移库" sections={[
+            { title: '功能概述', items: ['管理替代料移库，缺货时用替代料补充产线生产', '记录替代料来源和目标库位', '创建后需手机端确认库存才实际变更'] },
+            { title: '操作流程', items: ['选择缺货部品和替代部品，设置来源和目标库位', '填写移库数量，确认替代料库存充足后创建记录', '在手机端确认执行，库存自动完成变更'] }
+          ]} />
         </div>
       </div>
 
@@ -183,7 +188,7 @@ export default function SubstituteList() {
           <thead><tr className="bg-gray-50 text-left text-sm">
             <th className="p-3">ID</th><th className="p-3">缺货部品</th><th className="p-3">替代部品</th>
             <th className="p-3">数量</th><th className="p-3">来源库位</th><th className="p-3">目标库位</th>
-            <th className="p-3">状态</th><th className="p-3">创建时间</th><th className="p-3 w-32">操作</th>
+            <th className="p-3">状态</th><th className="p-3">创建时间</th><th className="p-3 w-48">操作</th>
           </tr></thead>
           <tbody>{records.length === 0 ? <tr><td colSpan={9} className="p-6 text-center text-gray-400">暂无记录</td></tr> :
             records.map(r => (

@@ -27,6 +27,7 @@ public class ShelvingService
         var batch = await _db.ShelvingBatches.FirstOrDefaultAsync(b => b.Id == batchId);
         if (batch == null || batch.Status != 1) throw AppException.Business("上架批次状态不允许操作");
 
+        barcode = barcode.Trim();
         var part = await _db.Parts.FirstOrDefaultAsync(p => p.PartNo == barcode || p.PartNo.Contains(barcode));
         if (part == null) throw AppException.NotFound("未找到对应物料");
 
@@ -58,7 +59,8 @@ public class ShelvingService
         {
             if (item.SourceLocationId.HasValue)
                 await invSvc.TransferOutCoreAsync(item.PartId, item.SourceLocationId.Value, item.Quantity, operatorId, "ShelvingOut", batchId);
-            await invSvc.AddCoreAsync(item.PartId, batch.TargetLocationId, item.Quantity, item.BatchNo ?? "", operatorId, "ShelvingIn", batchId);
+            await invSvc.AddCoreAsync(item.PartId, batch.TargetLocationId, item.Quantity,
+                item.BatchNo ?? $"LB-{DateTime.UtcNow:yyyyMMdd}", operatorId, "ShelvingIn", batchId);
 
             _db.MaterialShelvings.Add(new MaterialShelving
             {
@@ -121,7 +123,8 @@ public class ShelvingService
     public async Task<object> DirectShelvingAsync(string barcode, string targetLocationCode,
         decimal quantity, long operatorId)
     {
-        // 1. 条码匹配部品
+        // 1. 条码匹配部品（去空格 + 不区分大小写，MySQL 默认 ci）
+        barcode = barcode.Trim();
         var part = await _db.Parts.FirstOrDefaultAsync(p => p.PartNo == barcode);
         if (part == null) throw AppException.NotFound($"未找到部品: {barcode}");
 
@@ -129,9 +132,36 @@ public class ShelvingService
         var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == targetLocationCode);
         if (loc == null) throw AppException.NotFound($"未找到库位: {targetLocationCode}");
 
-        // 3. 库存入库
+        // 2.5 同库位已有不同料号 → 拒绝
+        var conflict = await _db.Inventories.FirstOrDefaultAsync(i =>
+            i.LocationId == loc.Id && i.PartId != part.Id && i.TotalQty > 0);
+        if (conflict != null)
+        {
+            var conflictPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == conflict.PartId);
+            throw AppException.Business($"库位 {targetLocationCode} 已有料号 {conflictPart?.PartNo ?? "?"}，不能放入不同料号 {barcode}");
+        }
+
+        // 3. 库存入库（生成默认批次号确保 InventoryLot 创建）
         var invSvc = new InventoryService(_db);
-        await invSvc.AddCoreAsync(part.Id, loc.Id, quantity, "", operatorId, "ShelvingDirect");
+        var batchNo = $"SN{DateTime.UtcNow:yyyyMMddHHmmss}";
+        await invSvc.AddCoreAsync(part.Id, loc.Id, quantity, batchNo, operatorId, "ShelvingDirect");
+
+        // 3.5 上架后自动补冻结：检查是否有待补货的备料明细，用新入库的库存补齐
+        var shortDetails = await _db.PrepDetails
+            .Where(d => !d.IsDeleted && d.Status == 3 && d.PartId == part.Id && d.ActualQty < d.RequiredQty)
+            .OrderBy(d => d.Id).ToListAsync();
+        foreach (var sd in shortDetails)
+        {
+            var shortfall = sd.RequiredQty - sd.ActualQty;
+            if (shortfall <= 0) continue;
+            var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.PartId == part.Id && i.LocationId == loc.Id);
+            if (inv == null || inv.AvailableQty <= 0) continue;
+            var freezeQty = Math.Min(shortfall, inv.AvailableQty);
+            await invSvc.FreezeCoreAsync(part.Id, loc.Id, freezeQty, operatorId, "ShelvingReplenish", sd.PrepOrderId);
+            sd.ActualQty += freezeQty;
+            if (sd.ActualQty >= sd.RequiredQty) sd.Status = 1;
+        }
+        if (shortDetails.Any()) await _db.SaveChangesAsync();
 
         // 4. 写上架记录
         var record = new MaterialShelving

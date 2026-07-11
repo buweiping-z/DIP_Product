@@ -7,9 +7,10 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+    [Authorize]
 [Route("api/v1/orders")]
-public class OrdersController : ControllerBase
-{
+
+public class OrdersController : ControllerBase {
     private readonly OrderService _svc;
 
     public OrdersController(OrderService svc) { _svc = svc; }
@@ -24,6 +25,9 @@ public class OrdersController : ControllerBase
 
     [HttpGet("product-bom")]
     public async Task<IActionResult> GetProductBom([FromQuery] string name) => Ok(ApiResponse.Ok(await _svc.GetProductBomAsync(name)));
+
+    [HttpGet("{id}/bom-status")]
+    public async Task<IActionResult> GetBomStatus(long id) => Ok(ApiResponse.Ok(await _svc.GetBomStatusAsync(id)));
 
     [HttpGet("bom-template")]
     public async Task<IActionResult> DownloadBomTemplate()
@@ -57,7 +61,6 @@ public class OrdersController : ControllerBase
         => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, data), "更新成功"));
 
     [HttpPost("{id}/cancel")]
-    [Authorize]
     public async Task<IActionResult> Cancel(long id)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -73,7 +76,6 @@ public class OrdersController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize]
     public async Task<IActionResult> Delete(long id)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -90,5 +92,6 @@ public class OrdersController : ControllerBase
         return Ok(ApiResponse.Ok(new { count }, $"导入 {count} 条 BOM"));
     }
 }
+
 
 public class StatusRequest { public int Status { get; set; } }

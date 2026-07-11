@@ -7,9 +7,10 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+    [Authorize]
 [Route("api/v1/online")]
-public class OnlineController : ControllerBase
-{
+
+public class OnlineController : ControllerBase {
     private readonly OnlineService _svc;
 
     public OnlineController(OnlineService svc) { _svc = svc; }
@@ -28,7 +29,6 @@ public class OnlineController : ControllerBase
             prep_order_id, part_id, page, page_size)));
 
     [HttpPost("confirm")]
-    [Authorize]
     public async Task<IActionResult> Confirm([FromBody] OnlineConfirmRequest req)
     {
         var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -36,6 +36,7 @@ public class OnlineController : ControllerBase
             req.StationId, req.EquipmentId, userId)));
     }
 }
+
 
 public class OnlineConfirmRequest
 {

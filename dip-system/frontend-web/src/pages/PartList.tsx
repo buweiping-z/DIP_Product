@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
+import HelpButton from '../lib/HelpButton';
 
 const PART_TYPES: Record<number, string> = { 1: '电子元器件', 2: 'PCB', 3: '结构件', 4: '包装材料', 5: '辅料' };
 
@@ -62,6 +63,10 @@ export default function PartList() {
           <button onClick={() => fileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入物料</button>
           <a href="/api/v1/parts/template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载模板</a>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+          <HelpButton title="物料管理" sections={[
+            { title: '功能概述', items: ['管理SMT生产用物料档案，包括料号、名称、规格、MSL等级等属性', '支持Excel批量导入和模板下载', '支持软删除保护数据完整性，可恢复已删除物料'] },
+            { title: '操作流程', items: ['点击"新增物料"或"导入物料"创建物料档案', '填写料号、名称、规格、MSL等级等必填信息', '编辑或禁用不再使用的物料'] }
+          ]} />
         </div>
       </div>
 

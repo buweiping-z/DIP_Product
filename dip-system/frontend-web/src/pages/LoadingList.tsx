@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 export default function ShelvingList() {
   const [data, setData] = useState<any[]>([]);
@@ -37,7 +38,13 @@ export default function ShelvingList() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">上架管理</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">上架管理</h1>
+        <HelpButton title="上架管理" sections={[
+          { title: '功能概述', items: ['查看物料上架入库记录', '追溯上架操作时间和担当者', '支持按部品名称、库位、日期范围筛选'] },
+          { title: '操作流程', items: ['手机端扫码部品 → 扫描目标库位 → 输入数量完成上架', '在本页面查看上架历史记录', '使用搜索栏快速查找特定上架记录'] }
+        ]} />
+      </div>
 
       {/* Search bar */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">

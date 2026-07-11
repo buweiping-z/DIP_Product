@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 export default function RefillList() {
   const [data, setData] = useState<any[]>([]);
@@ -37,7 +38,13 @@ export default function RefillList() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">补料记录</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">补料记录</h1>
+        <HelpButton title="补料记录" sections={[
+          { title: '功能概述', items: ['查看生产线补料操作记录', '追溯补料来源库位和操作人员', '支持按料号、库位、日期范围筛选'] },
+          { title: '操作流程', items: ['在搜索栏输入料号、库位或选择日期范围', '点击"查询"筛选补料记录', '查看补料详情追溯来源信息'] }
+        ]} />
+      </div>
       <p className="text-gray-500 text-sm mb-4">手机端扫码补料的操作记录</p>
 
       {/* Search bar */}

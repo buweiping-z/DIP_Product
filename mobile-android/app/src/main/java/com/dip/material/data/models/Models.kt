@@ -144,6 +144,15 @@ data class OnlineConfirmRequest(
     @SerializedName("equipment_id") val equipmentId: Long? = null
 )
 
+// ===== Outbound =====
+data class OutboundOrderItem(
+    val id: Int, @SerializedName("order_no") val orderNo: String,
+    @SerializedName("part_no") val partNo: String, @SerializedName("part_name") val partName: String,
+    @SerializedName("location_code") val locationCode: String, val quantity: Double,
+    val status: Int, @SerializedName("created_at") val createdAt: String?
+)
+data class OutboundConfirmRequest(val barcode: String)
+
 // ===== Substitute =====
 data class SubstituteRequest(
     @SerializedName("original_part_id") val originalPartId: Int,

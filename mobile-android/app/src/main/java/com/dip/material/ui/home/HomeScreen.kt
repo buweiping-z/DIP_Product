@@ -22,6 +22,7 @@ fun HomeScreen(
     onNavigateToReturn: () -> Unit,
     onNavigateToOnline: () -> Unit,
     onNavigateToSubstitute: () -> Unit,
+    onNavigateToOutbound: () -> Unit,
     onLogout: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
@@ -57,6 +58,9 @@ fun HomeScreen(
                 FuncCard("退料", Icons.Default.Archive, Modifier.weight(1f), onClick = onNavigateToReturn)
                 FuncCard("上线", Icons.Default.CheckCircle, Modifier.weight(1f), onClick = onNavigateToOnline)
                 FuncCard("替代", Icons.Default.SwapHoriz, Modifier.weight(1f), onClick = onNavigateToSubstitute)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FuncCard("出库", Icons.Default.ExitToApp, Modifier.weight(1f), onClick = onNavigateToOutbound)
             }
         }
     }

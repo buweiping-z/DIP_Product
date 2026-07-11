@@ -75,6 +75,15 @@ interface ApiService {
     @GET("api/v1/orders/{id}/details")
     suspend fun getOrderDetail(@Path("id") orderId: Int): ApiResponse<OrderDetail>
 
+    // ===== Outbound =====
+    @GET("api/v1/outbound")
+    suspend fun getOutboundOrders(
+        @Query("status") status: Int? = null, @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50
+    ): ApiResponse<PageResult<OutboundOrderItem>>
+
+    @POST("api/v1/outbound/{id}/confirm")
+    suspend fun confirmOutbound(@Path("id") orderId: Int, @Body request: OutboundConfirmRequest): ApiResponse<Map<String, Any?>>
+
     // ===== Online =====
     @POST("api/v1/online/confirm")
     suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<Map<String, Any?>>

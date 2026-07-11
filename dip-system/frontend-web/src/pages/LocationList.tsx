@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
+import HelpButton from '../lib/HelpButton';
 
 export default function LocationList() {
   const [data, setData] = useState<any[]>([]);
@@ -66,6 +67,10 @@ export default function LocationList() {
           <button onClick={() => fileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入库位</button>
           <a href="/api/v1/locations/template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载模板</a>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+          <HelpButton title="库位管理" sections={[
+            { title: '功能概述', items: ['管理线边仓库位编码，记录库位容量和当前库存数量', '支持Excel批量导入库位', '库位启用/禁用管理'] },
+            { title: '操作流程', items: ['新增或导入库位，填写库位编码、仓库、排/列信息', '编辑库位属性（容量、仓库区域等）', '禁用不再使用的库位'] }
+          ]} />
         </div>
       </div>
       {msg && <div className="bg-blue-50 text-blue-800 p-2 rounded mb-3 text-sm">{msg}</div>}

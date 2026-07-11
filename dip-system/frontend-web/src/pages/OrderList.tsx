@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
+import HelpButton from '../lib/HelpButton';
 
 const STATUS_MAP = ['', '待备料', '待上线', '已完成', '已取消'];
 
@@ -110,6 +111,10 @@ export default function OrderList() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">订单管理</h1>
+        <HelpButton title="订单管理" sections={[
+          { title: '功能概述', items: ['管理生产订单：创建、编辑、查看详情、导入BOM', '订单状态自动流转：待备料(1)→待上线(2)→已完成(3)，已取消(4)', '已完成和已取消的订单不可编辑或删除'] },
+          { title: '操作流程', items: ['1. 新建订单：选产线→选产品→设计划数量→确认创建（自动生成备料单）', '2. 编辑订单：修改计划数量会联动更新备料需求', '3. 导入产品BOM：下载模板→填写料号/用量→上传', '4. 手机端备料完成后自动变为"待上线"，上线完成后自动变为"已完成"'] }
+        ]} />
         <div className="flex gap-2">
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建订单</button>
           <button onClick={() => bomFileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入产品BOM</button>

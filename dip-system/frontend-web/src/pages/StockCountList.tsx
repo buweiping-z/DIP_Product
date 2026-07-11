@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../lib/api';
+import HelpButton from '../lib/HelpButton';
 
 export default function StockCountList() {
   const [data, setData] = useState<any[]>([]);
@@ -69,6 +70,10 @@ export default function StockCountList() {
             {uploading ? '导入中...' : '导入盘点结果'}
           </button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
+          <HelpButton title="盘点管理" sections={[
+            { title: '功能概述', items: ['下载盘点模板，导入实盘结果调整系统库存', '未出现在Excel中的库存项将自动清零', '查看盘点差异分析（系统库存 vs 实盘数量）'] },
+            { title: '操作流程', items: ['点击"下载盘点模板"导出Excel盘点表', '在生产现场清点实物后填写实盘数量', '导入Excel，系统自动更新库存并记录差异'] }
+          ]} />
         </div>
       </div>
 

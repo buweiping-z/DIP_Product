@@ -67,6 +67,7 @@ builder.Services.AddScoped<AbnormalService>();
 builder.Services.AddScoped<TransferService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<UserService>();
+builder.Services.AddScoped<OutboundService>();
 
 // 5. Controllers + Swagger
 builder.Services.AddControllers(options =>
@@ -89,6 +90,42 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+
+    // 新增表兼容：EnsureCreated 只在数据库不存在时建表，已存在则需手动补建
+    try
+    {
+        var conn = db.Database.GetDbConnection();
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'outbound_orders'";
+        var exists = (long)cmd.ExecuteScalar()! > 0;
+        if (!exists)
+        {
+            cmd.CommandText = @"
+                CREATE TABLE outbound_orders (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL DEFAULT 0,
+                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NULL,
+                    created_by BIGINT NULL,
+                    updated_by BIGINT NULL,
+                    order_no VARCHAR(100) NOT NULL,
+                    part_id BIGINT NOT NULL,
+                    part_no VARCHAR(200) NOT NULL,
+                    part_name VARCHAR(200) NOT NULL,
+                    location_id BIGINT NOT NULL,
+                    location_code VARCHAR(100) NOT NULL,
+                    quantity DECIMAL(18,4) NOT NULL DEFAULT 0,
+                    status INT NOT NULL DEFAULT 1,
+                    operator_id BIGINT NOT NULL DEFAULT 0,
+                    completed_at DATETIME NULL,
+                    UNIQUE INDEX uq_outbound_orders_no (order_no)
+                )";
+            cmd.ExecuteNonQuery();
+        }
+    }
+    catch { }
 
     // 种子角色（幂等 — 已存在则跳过）
     if (!db.Roles.Any(r => r.RoleCode == "admin"))
@@ -181,24 +218,73 @@ using (var scope = app.Services.CreateScope())
     }
     if (brokenLots.Any()) db.SaveChanges();
 
-    // 修复僵尸冻结库存：根据活跃备料扫描记录重建 FrozenQty
+    // 修正僵尸冻结：对已取消/已完成的订单，释放多余的冻结库存
     var frozenInvs = db.Inventories.Where(i => i.FrozenQty > 0).ToList();
     foreach (var inv in frozenInvs)
     {
-        // 计算该库位+部品实际应冻结的数量：来自未取消的备料单扫描
-        var expectedFrozen = db.PrepScanRecords
-            .Where(s => s.SourceLocationId == inv.LocationId
-                && db.PrepDetails.Any(d => d.Id == s.PrepDetailId && d.PartId == inv.PartId
-                    && db.PrepOrders.Any(p => p.Id == d.PrepOrderId && p.Status != 3)))
-            .Sum(s => (decimal?)s.Quantity) ?? 0m;
+        // 计算该部品当前活跃订单实际需要的冻结量（来自 status=1 或 2 的订单）
+        var activeOrderIds = db.ProductionOrders
+            .Where(o => o.Status == 1 || o.Status == 2).Select(o => o.Id).ToList();
+        var activePrepIds = db.PrepOrders
+            .Where(p => activeOrderIds.Contains(p.ProductionOrderId) && p.Status != 3).Select(p => p.Id).ToList();
+        var expectedFrozen = db.PrepDetails
+            .Where(d => activePrepIds.Contains(d.PrepOrderId) && d.PartId == inv.PartId)
+            .Sum(d => (decimal?)d.ActualQty) ?? 0m;
 
-        if (inv.FrozenQty > expectedFrozen)
+        // 按库位比例分配？简化：总冻结量超过总需求时释放多余的
+        // 这里只做保护：如果完全没有活跃订单却有冻结，就释放
+        if (expectedFrozen == 0 && inv.FrozenQty > 0)
         {
-            var excess = inv.FrozenQty - expectedFrozen;
-            inv.FrozenQty = expectedFrozen;
-            inv.AvailableQty += excess;
+            inv.AvailableQty += inv.FrozenQty;
+            inv.FrozenQty = 0;
         }
     }
+    // 清洗上线确认记录中的脏库位/工位数据
+    var dirtyOnlineRecords = db.OnlineConfirms
+        .Where(o => !string.IsNullOrEmpty(o.SourceLocationCode) || !string.IsNullOrEmpty(o.StationNo)).ToList();
+    foreach (var record in dirtyOnlineRecords)
+    {
+        record.SourceLocationCode = null;
+        record.StationNo = string.Empty;
+    }
+    if (dirtyOnlineRecords.Any()) db.SaveChanges();
+
+    // 迁移旧订单：冻结前移之前的订单 ActualQty=0，需补冻结库存
+    var unfrozenDetails = db.PrepDetails
+        .Where(d => !d.IsDeleted && d.Status == 1 && d.ActualQty == 0 && d.RequiredQty > 0).ToList();
+    if (unfrozenDetails.Any())
+    {
+        var invSvc = new InventoryService(db);
+        foreach (var detail in unfrozenDetails)
+        {
+            var allInvs = db.Inventories.Where(i => i.PartId == detail.PartId && i.AvailableQty > 0).ToList();
+            var totalFrozen = 0m;
+            foreach (var inv in allInvs)
+            {
+                if (totalFrozen >= detail.RequiredQty) break;
+                var qty = Math.Min(inv.AvailableQty, detail.RequiredQty - totalFrozen);
+                // 补建缺失的可用批次（启动修复逻辑已经补过，这里兜底）
+                var availLots = db.InventoryLots
+                    .Where(l => l.InventoryId == inv.Id && l.Status == 1).Sum(l => (decimal?)l.Quantity) ?? 0m;
+                if (availLots < qty)
+                {
+                    db.InventoryLots.Add(new DIP.Api.Models.InventoryLot
+                    {
+                        InventoryId = inv.Id, PartId = inv.PartId, LocationId = inv.LocationId,
+                        BatchNo = $"MIG-{DateTime.UtcNow:yyyyMMddHHmmss}", Quantity = qty - availLots,
+                        Status = 1, ReceiptDate = DateTime.UtcNow, OriginType = 1
+                    });
+                    db.SaveChanges();
+                }
+                invSvc.FreezeCoreAsync(detail.PartId, inv.LocationId, qty, 0, "Migration", 0).Wait();
+                totalFrozen += qty;
+            }
+            detail.ActualQty = totalFrozen;
+            if (totalFrozen < detail.RequiredQty) detail.Status = 3;
+        }
+        db.SaveChanges();
+    }
+
     db.SaveChanges();
 }
 

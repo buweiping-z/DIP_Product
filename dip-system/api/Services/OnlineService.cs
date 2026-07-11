@@ -21,12 +21,14 @@ public class OnlineService
         var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == detail.PrepOrderId);
         if (prep == null || prep.Status != 2) throw AppException.Business("备料单未完成");
 
-        var scans = await _db.PrepScanRecords
-            .Where(s => s.PrepDetailId == detailId).OrderBy(s => s.CreatedAt).ToListAsync();
-        if (scans.Count == 0) throw AppException.Business("无备料扫描记录");
-
-        var totalFrozen = scans.Sum(s => s.Quantity);
+        // 直接从冻结库存扣减（兼容新旧流程，不依赖 PrepScanRecords）
+        var frozenInvs = await _db.Inventories
+            .Where(i => i.PartId == detail.PartId && i.FrozenQty > 0).ToListAsync();
+        var totalFrozen = frozenInvs.Sum(i => (decimal?)i.FrozenQty) ?? 0m;
         if (totalFrozen < reqQty) throw AppException.Business("冻结库存不足");
+
+        var firstInv = frozenInvs.First();
+        var firstLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == firstInv.LocationId);
 
         string stationNo = "";
         if (stationId.HasValue)
@@ -38,9 +40,9 @@ public class OnlineService
         var confirm = new OnlineConfirm
         {
             PrepOrderId = detail.PrepOrderId, PrepDetailId = detailId,
-            PartId = detail.PartId, PartNo = detail.PartNo, BatchNo = scans[0].BatchNo ?? "",
+            PartId = detail.PartId, PartNo = detail.PartNo, BatchNo = "",
             LoadedQty = reqQty, StationId = stationId, StationNo = stationNo,
-            SourceLocationId = scans[0].SourceLocationId, Barcode = barcode,
+            SourceLocationId = firstInv.LocationId, Barcode = barcode,
             EquipmentId = equipmentId, OperatorId = operatorId, Status = 1
         };
         _db.OnlineConfirms.Add(confirm);
@@ -48,11 +50,11 @@ public class OnlineService
 
         var invSvc = new InventoryService(_db);
         var remaining = reqQty;
-        foreach (var scan in scans)
+        foreach (var inv in frozenInvs)
         {
             if (remaining <= 0) break;
-            var deduct = Math.Min(remaining, scan.Quantity);
-            await invSvc.DeductCoreAsync(detail.PartId, scan.SourceLocationId, deduct, operatorId, "OnlineOut", confirm.Id);
+            var deduct = Math.Min(remaining, inv.FrozenQty);
+            await invSvc.DeductCoreAsync(detail.PartId, inv.LocationId, deduct, operatorId, "OnlineOut", confirm.Id);
             remaining -= deduct;
         }
         await _db.SaveChangesAsync();
@@ -110,14 +112,29 @@ public class OnlineService
         if (partId.HasValue) query = query.Where(c => c.PartId == partId.Value);
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(c => c.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
-        return new { total, page, page_size = pageSize, items = items.Select(ToDict) };
-    }
+        var rawItems = await query.OrderByDescending(c => c.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
-    private static object ToDict(OnlineConfirm c) => new
-    {
-        c.Id, prep_order_id = c.PrepOrderId, prep_detail_id = c.PrepDetailId,
-        part_id = c.PartId, part_no = c.PartNo, batch_no = c.BatchNo,
-        loaded_qty = c.LoadedQty, station_no = c.StationNo, status = c.Status, confirmed_at = c.ConfirmedAt
-    };
+        // 批量加载关联数据，避免 N+1
+        var prepIds = rawItems.Select(c => c.PrepOrderId).Distinct().ToList();
+        var prepOrders = await _db.PrepOrders.Where(p => prepIds.Contains(p.Id)).ToListAsync();
+        var prodOrderIds = prepOrders.Select(p => p.ProductionOrderId).Distinct().ToList();
+        var prodOrders = await _db.ProductionOrders.Where(o => prodOrderIds.Contains(o.Id)).ToListAsync();
+
+        var items = rawItems.Select(c =>
+        {
+            var prep = prepOrders.FirstOrDefault(p => p.Id == c.PrepOrderId);
+            var prod = prep != null ? prodOrders.FirstOrDefault(o => o.Id == prep.ProductionOrderId) : null;
+            return (object)new
+            {
+                c.Id, prep_order_id = c.PrepOrderId, prep_order_no = prep?.OrderNo ?? "",
+                prod_order_no = prod?.OrderNo ?? "", product_name = prod?.ProductName ?? "",
+                prep_detail_id = c.PrepDetailId, part_id = c.PartId, part_no = c.PartNo,
+                batch_no = c.BatchNo, loaded_qty = c.LoadedQty, station_no = c.StationNo,
+                source_location_code = c.SourceLocationCode, barcode = c.Barcode,
+                status = c.Status, confirmed_at = c.ConfirmedAt
+            };
+        }).ToList();
+
+        return new { total, page, page_size = pageSize, items };
+    }
 }
