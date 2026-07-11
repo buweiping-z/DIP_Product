@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
 
-const STATUS_MAP = ['', '待处理', '进行中', '已完成', '已取消'];
+const STATUS_MAP = ['', '待备料', '待上线', '已完成', '已取消'];
 
 export default function OrderList() {
   const [data, setData] = useState<any[]>([]);
@@ -14,7 +14,7 @@ export default function OrderList() {
   const [products, setProducts] = useState<string[]>([]);
   const [lines, setLines] = useState<any[]>([]);
   const [bomItems, setBomItems] = useState<any[]>([]);
-  const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2, status: 1 });
+  const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2 });
   const [detailData, setDetailData] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
 
@@ -38,20 +38,19 @@ export default function OrderList() {
     setEditId(null);
     setBomItems([]);
     const loadedLines = await loadMeta();
-    setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2, status: 1 });
+    setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2 });
     setShowDialog(true);
   };
 
   const openEdit = async (order: any) => {
     setEditId(order.id);
-    setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority, status: order.status });
+    setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority });
     await loadMeta();
-    if (order.product_name) {
-      try {
-        const res = await api.get('/orders/product-bom', { params: { name: order.product_name } });
-        setBomItems((res.data || []).map((item: any) => ({ ...item, stock: item.stock || 0 })));
-      } catch { setBomItems([]); }
-    }
+    // 加载订单维度的BOM状态（含冻结量+可用库存）
+    try {
+      const res = await api.get(`/orders/${order.id}/bom-status`);
+      setBomItems((res.data || []).map((item: any) => ({ ...item, stock: item.net })));
+    } catch { setBomItems([]); }
     setShowDialog(true);
   };
 
@@ -136,12 +135,12 @@ export default function OrderList() {
               <td className="p-3 text-sm text-gray-500">{o.created_at?.slice(0, 19)}</td>
               <td className="p-3 space-x-1 whitespace-nowrap">
                 <button onClick={() => fetchDetail(o.id)} className="text-blue-600 hover:text-blue-800 text-sm">详情</button>
-                <button onClick={() => openEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                <select value={o.status} onChange={e => handleStatusChange(o.id, Number(e.target.value))}
-                  className="text-sm border rounded px-1 py-0.5">
-                  {STATUS_MAP.map((s, i) => i > 0 && <option key={i} value={i}>{s}</option>)}
-                </select>
-                <button onClick={() => handleDelete(o.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                {o.status !== 3 && o.status !== 4 && (
+                  <>
+                    <button onClick={() => openEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                    <button onClick={() => handleDelete(o.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                  </>
+                )}
               </td>
             </tr>
           ))}</tbody>
@@ -189,18 +188,27 @@ export default function OrderList() {
                 <table className="w-full border text-sm">
                   <thead><tr className="bg-gray-100">
                     <th className="p-2 text-left">#</th><th className="p-2 text-left">料号</th>
-                    <th className="p-2 text-right">每台用量</th><th className="p-2 text-right">总需求</th>
-                    <th className="p-2 text-center">库存状态</th>
+                    <th className="p-2 text-right">总需求</th>
+                    {editId && <th className="p-2 text-right">已冻结</th>}
+                    <th className="p-2 text-right">可用库存</th>
+                    <th className="p-2 text-center">状态</th>
                   </tr></thead>
                   <tbody>{bomItems.map((item: any, idx: number) => {
-                    const totalNeed = item.quantity * form.plan_qty;
-                    const sufficient = item.stock >= totalNeed;
+                    const totalNeed = editId ? (item.required_qty || 0) : (item.quantity * form.plan_qty);
+                    const frozen = item.frozen_qty || 0;
+                    const avail = editId ? (item.available_qty || 0) : (item.stock || 0);
+                    const net = editId ? (item.net || 0) : (avail - totalNeed);
+                    const isEdit = !!editId;
                     return (
-                      <tr key={idx} className={`border-t ${!sufficient ? 'bg-red-50' : ''}`}>
+                      <tr key={idx} className={`border-t ${net < 0 ? 'bg-red-50' : ''}`}>
                         <td className="p-2">{idx + 1}</td><td className="p-2 font-mono">{item.part_no}</td>
-                        <td className="p-2 text-right">{item.quantity}</td><td className="p-2 text-right">{totalNeed}</td>
-                        <td className={`p-2 text-center ${sufficient ? 'text-green-600' : 'text-red-600 font-medium'}`}>
-                          {item.stock > 0 ? (sufficient ? '充足' : `缺 ${totalNeed - item.stock}`) : '无库存'}
+                        <td className="p-2 text-right">{totalNeed}</td>
+                        {isEdit && <td className="p-2 text-right text-blue-600">{frozen}</td>}
+                        <td className="p-2 text-right">{avail}</td>
+                        <td className={`p-2 text-center text-xs ${net >= 0 ? 'text-green-600' : 'text-red-600 font-medium'}`}>
+                          {isEdit
+                            ? (net >= 0 ? '充足' : `缺 ${Math.abs(net)}`)
+                            : (avail >= totalNeed ? '充足' : `缺 ${totalNeed - avail}`)}
                         </td>
                       </tr>
                     );
