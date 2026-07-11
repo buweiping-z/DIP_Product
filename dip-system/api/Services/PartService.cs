@@ -148,14 +148,20 @@ public class PartService
             var type = row.Cell(5).TryGetValue(out int tp) ? tp : 1;
             var msl = row.Cell(6).TryGetValue(out int ms) ? ms : 0;
 
-            var existing = await _db.Parts.FirstOrDefaultAsync(p => p.PartNo == pn);
+            // 含软删除查询：未删→跳过，已删→恢复，不存在→新增
+            var existing = await _db.Parts.IgnoreQueryFilters().FirstOrDefaultAsync(p => p.PartNo == pn);
             if (existing != null)
             {
-                existing.PartName = name;
-                existing.Specification = string.IsNullOrEmpty(spec) ? existing.Specification : spec;
-                existing.Unit = unit;
-                existing.PartType = type;
-                existing.MslLevel = msl;
+                if (existing.IsDeleted)
+                {
+                    existing.IsDeleted = false;
+                    existing.PartName = name;
+                    existing.Specification = string.IsNullOrEmpty(spec) ? existing.Specification : spec;
+                    existing.Unit = unit;
+                    existing.PartType = type;
+                    existing.MslLevel = msl;
+                }
+                // 未删除的 → 跳过不更新
             }
             else
             {

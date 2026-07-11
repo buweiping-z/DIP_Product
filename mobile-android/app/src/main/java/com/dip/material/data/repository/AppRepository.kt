@@ -39,8 +39,17 @@ class AppRepository(val context: Context) {
     suspend fun checkKitComplete(prepId: Int) = call { api.checkKitComplete(prepId) }
 
     // Refill
-    suspend fun getPendingItems() = call { api.getPendingItems() }
-    suspend fun getRefillRecords() = call { api.getRefillRecords() }
+    suspend fun getActiveRefillBatches() = call { api.getActiveRefillBatches() }
+    suspend fun getRefillBatchDetail(batchNo: String) = call { api.getRefillBatchDetail(batchNo) }
+    suspend fun getRefillParts(productName: String) = call { api.getRefillParts(productName) }
+    suspend fun getRefillRecords(partNo: String? = null, locationCode: String? = null,
+                                  startDate: String? = null, endDate: String? = null) =
+        call { api.getRefillRecords(partNo, locationCode, startDate, endDate) }
+    suspend fun batchStartRefill(batchNo: String, items: List<RefillStartItem>) =
+        call { api.batchStartRefill(RefillBatchStartRequest(batchNo, items)) }
+    suspend fun scanRefill(detailId: Int, prepOrderId: Int, partNo: String, partName: String,
+                            locationCode: String, barcode: String, batchNo: String, step: Int) =
+        call { api.scanRefill(RefillScanRequest(detailId, prepOrderId, partNo, partName, locationCode, barcode, batchNo, step)) }
 
     // Return
     suspend fun scanReturn(barcode: String, locationId: Int) =

@@ -68,13 +68,27 @@ public class DashboardService
             shelving = todayShelving
         };
 
+        // 补料统计：按批次号分组，整批全部step=3才算完成
+        var refillRecords = await _db.RefillRecords
+            .Where(r => !r.IsDeleted && !string.IsNullOrEmpty(r.BatchNo)).ToListAsync();
+        var refillBatches = refillRecords.GroupBy(r => r.BatchNo).Select(g => new {
+            done = g.Any(r => r.Step >= 3),  // 有一笔核对完成即算完成
+            today = g.Any(r => r.CreatedAt >= todayStart)
+        }).ToList();
+        var refillStats = new {
+            active = refillBatches.Count(b => !b.done),
+            done = refillBatches.Count(b => b.done),
+            today = refillBatches.Count(b => b.today)
+        };
+
         return new
         {
             order_stats = orderStats,
             prep_stats = prepStats,
             prep_rate = prepRate,
             inventory_alerts = inventoryAlerts,
-            today_ops = todayOps
+            today_ops = todayOps,
+            refill_stats = refillStats
         };
     }
 

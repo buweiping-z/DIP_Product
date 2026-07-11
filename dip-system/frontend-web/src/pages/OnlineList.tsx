@@ -8,7 +8,6 @@ export default function OnlineList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [partNo, setPartNo] = useState('');
-  const [stationNo, setStationNo] = useState('');
   const [prodOrderNo, setProdOrderNo] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -19,14 +18,13 @@ export default function OnlineList() {
     try {
       const params: any = { page: 1, page_size: 100 };
       if (partNo) params.part_no = partNo;
-      if (stationNo) params.station_no = stationNo;
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
       setData((await api.get('/online', { params })).data?.items || []);
     } catch (err: any) {
       setMsg('查询失败: ' + (err.response?.data?.message || err.message));
     } finally { setLoading(false); }
-  }, [partNo, stationNo, startDate, endDate]);
+  }, [partNo, startDate, endDate]);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -34,7 +32,6 @@ export default function OnlineList() {
 
   const handleClear = () => {
     setPartNo('');
-    setStationNo('');
     setProdOrderNo('');
     setStartDate('');
     setEndDate('');
@@ -61,12 +58,6 @@ export default function OnlineList() {
             <label className="block text-sm text-gray-600 mb-1">料号</label>
             <input className="border rounded px-3 py-1.5 w-40" placeholder="输入料号"
               value={partNo} onChange={e => setPartNo(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()} />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">工位</label>
-            <input className="border rounded px-3 py-1.5 w-32" placeholder="输入工位"
-              value={stationNo} onChange={e => setStationNo(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()} />
           </div>
           <div>

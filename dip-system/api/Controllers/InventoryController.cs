@@ -28,6 +28,7 @@ public class InventoryController : ControllerBase
     public async Task<IActionResult> GetFifoLots(long partId, [FromQuery] decimal required_qty)
         => Ok(ApiResponse.Ok(await _svc.GetFifoLotsAsync(partId, required_qty)));
 
+    [AllowAnonymous]
     [HttpGet("template")]
     public async Task<IActionResult> Template()
     {

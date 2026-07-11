@@ -146,22 +146,9 @@ public class ShelvingService
         var batchNo = $"SN{DateTime.UtcNow:yyyyMMddHHmmss}";
         await invSvc.AddCoreAsync(part.Id, loc.Id, quantity, batchNo, operatorId, "ShelvingDirect");
 
-        // 3.5 上架后自动补冻结：检查是否有待补货的备料明细，用新入库的库存补齐
-        var shortDetails = await _db.PrepDetails
-            .Where(d => !d.IsDeleted && d.Status == 3 && d.PartId == part.Id && d.ActualQty < d.RequiredQty)
-            .OrderBy(d => d.Id).ToListAsync();
-        foreach (var sd in shortDetails)
-        {
-            var shortfall = sd.RequiredQty - sd.ActualQty;
-            if (shortfall <= 0) continue;
-            var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.PartId == part.Id && i.LocationId == loc.Id);
-            if (inv == null || inv.AvailableQty <= 0) continue;
-            var freezeQty = Math.Min(shortfall, inv.AvailableQty);
-            await invSvc.FreezeCoreAsync(part.Id, loc.Id, freezeQty, operatorId, "ShelvingReplenish", sd.PrepOrderId);
-            sd.ActualQty += freezeQty;
-            if (sd.ActualQty >= sd.RequiredQty) sd.Status = 1;
-        }
-        if (shortDetails.Any()) await _db.SaveChangesAsync();
+        // ★ 上架后触发活跃订单重新冻结（新库存按先到先得分给待补货订单）
+        var orderSvc = new OrderService(_db);
+        await orderSvc.RefreezeActiveOrdersAsync(operatorId);
 
         // 4. 写上架记录
         var record = new MaterialShelving

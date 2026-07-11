@@ -109,7 +109,31 @@ data class PendingItem(
     @SerializedName("product_name") val productName: String,
     @SerializedName("part_id") val partId: Int, @SerializedName("part_no") val partNo: String,
     @SerializedName("required_qty") val requiredQty: Double,
-    @SerializedName("actual_qty") val actualQty: Double, val remaining: Double
+    @SerializedName("actual_qty") val actualQty: Double, val remaining: Double,
+    @SerializedName("location_codes") val locationCodes: List<String> = emptyList()
+)
+
+// ===== Refill =====
+data class RefillBatchStartRequest(
+    @SerializedName("batch_no") val batchNo: String,
+    val items: List<RefillStartItem>
+)
+data class RefillStartItem(
+    @SerializedName("prep_detail_id") val prepDetailId: Int,
+    @SerializedName("prep_order_id") val prepOrderId: Int,
+    @SerializedName("part_no") val partNo: String,
+    @SerializedName("part_name") val partName: String,
+    @SerializedName("location_code") val locationCode: String
+)
+data class RefillScanRequest(
+    @SerializedName("prep_detail_id") val prepDetailId: Int,
+    @SerializedName("prep_order_id") val prepOrderId: Int,
+    @SerializedName("part_no") val partNo: String,
+    @SerializedName("part_name") val partName: String,
+    @SerializedName("location_code") val locationCode: String,
+    val barcode: String,
+    @SerializedName("batch_no") val batchNo: String,
+    val step: Int
 )
 
 // ===== Return =====

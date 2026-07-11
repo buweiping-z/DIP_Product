@@ -38,7 +38,12 @@ public class InventoryService
 
         var inv = _db.Inventories.Local.FirstOrDefault(i => i.PartId == partId && i.LocationId == locationId);
         if (inv == null)
-            inv = await _db.Inventories.FirstOrDefaultAsync(i => i.PartId == partId && i.LocationId == locationId);
+            inv = await _db.Inventories.IgnoreQueryFilters().FirstOrDefaultAsync(i => i.PartId == partId && i.LocationId == locationId);
+        if (inv != null && inv.IsDeleted)
+        {
+            inv.IsDeleted = false; // 恢复软删除记录
+            inv.TotalQty = 0; inv.AvailableQty = 0; inv.FrozenQty = 0; // 数量从0开始累加
+        }
         if (inv == null)
         {
             inv = new Inventory { PartId = partId, LocationId = locationId };
@@ -485,23 +490,26 @@ public class InventoryService
     {
         using var wb = new XLWorkbook(new MemoryStream(fileBytes));
         var ws = wb.Worksheet(1);
-        var validRows = new List<(int idx, string partNo, string locationCode, string batchNo, decimal qty)>();
+        var validRows = new List<(int idx, string partNo, string locationCode, decimal qty)>();
 
         int rowIdx = 2;
         foreach (var row in ws.RowsUsed().Skip(1))
         {
             var pn = row.Cell(1).GetString().Trim();
             var lc = row.Cell(2).GetString().Trim();
-            var bn = row.Cell(3).GetString().Trim();
             if (string.IsNullOrEmpty(pn) || string.IsNullOrEmpty(lc)) { rowIdx++; continue; }
-            if (!row.Cell(4).TryGetValue(out decimal q) || q <= 0) { rowIdx++; continue; }
-            validRows.Add((rowIdx, pn, lc, bn, q));
+            if (!row.Cell(3).TryGetValue(out decimal q) || q <= 0) { rowIdx++; continue; }
+            validRows.Add((rowIdx, pn, lc, q));
             rowIdx++;
         }
 
         var partNos = validRows.Select(r => r.partNo).Distinct().ToList();
         var locCodes = validRows.Select(r => r.locationCode).Distinct().ToList();
-        var pmap = (await _db.Parts.Where(p => partNos.Contains(p.PartNo)).ToListAsync()).ToDictionary(p => p.PartNo);
+        // 含软删除查询：恢复已删除的物料
+        var allParts = await _db.Parts.IgnoreQueryFilters().Where(p => partNos.Contains(p.PartNo)).ToListAsync();
+        foreach (var p in allParts) { if (p.IsDeleted) { p.IsDeleted = false; } }
+        if (allParts.Any(p => p.IsDeleted)) await _db.SaveChangesAsync();
+        var pmap = allParts.ToDictionary(p => p.PartNo);
         var lmap = (await _db.WarehouseLocations.Where(l => locCodes.Contains(l.LocationCode)).ToListAsync()).ToDictionary(l => l.LocationCode);
 
         // 预加载已有库存：同一库位已有不同料号则跳过
@@ -523,7 +531,7 @@ public class InventoryService
             {
                 try
                 {
-                    var batch = string.IsNullOrEmpty(r.batchNo) ? $"BATCH-{DateTime.UtcNow:yyyyMMdd}" : r.batchNo;
+                    var batch = $"IMP-{DateTime.UtcNow:yyyyMMddHHmmss}";
                     await AddCoreAsync(part.Id, loc.Id, r.qty, batch, operatorId, "Import", null);
                     success++;
                 }
@@ -533,7 +541,12 @@ public class InventoryService
                 details.Add(new { row = r.idx, part_no = r.partNo, location_code = r.locationCode, reason });
         }
 
-        if (success > 0) await _db.SaveChangesAsync();
+        if (success > 0)
+        {
+            await _db.SaveChangesAsync();
+            // 导入后重新冻结活跃订单（新库存按先到先得分给待补货订单）
+            await new OrderService(_db).RefreezeActiveOrdersAsync(operatorId);
+        }
         return new { success_count = success, skip_count = skip, details };
     }
 
@@ -543,12 +556,10 @@ public class InventoryService
         var ws = wb.Worksheets.Add("库存导入模板");
         ws.Cell(1, 1).Value = "料号";
         ws.Cell(1, 2).Value = "库位编码";
-        ws.Cell(1, 3).Value = "批次号";
-        ws.Cell(1, 4).Value = "数量";
+        ws.Cell(1, 3).Value = "数量";
         ws.Cell(2, 1).Value = "RES-0805-10K";
         ws.Cell(2, 2).Value = "WH-A-01-01-01";
-        ws.Cell(2, 3).Value = "B2026001";
-        ws.Cell(2, 4).Value = 500;
+        ws.Cell(2, 3).Value = 500;
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();

@@ -29,6 +29,7 @@ public class OrdersController : ControllerBase {
     [HttpGet("{id}/bom-status")]
     public async Task<IActionResult> GetBomStatus(long id) => Ok(ApiResponse.Ok(await _svc.GetBomStatusAsync(id)));
 
+    [AllowAnonymous]
     [HttpGet("bom-template")]
     public async Task<IActionResult> DownloadBomTemplate()
     {

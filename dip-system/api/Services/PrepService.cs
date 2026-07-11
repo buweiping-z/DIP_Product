@@ -264,6 +264,10 @@ public class PrepService
         };
     }
 
+    /// <summary>
+    /// 【取消备料单 → 全部解冻】
+    /// 遍历该备料单所有 PrepDetail，将该料号的全部 FrozenQty 释放回 AvailableQty
+    /// </summary>
     public async Task CancelAsync(long prepId, long operatorId)
     {
         var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == prepId);
@@ -271,10 +275,10 @@ public class PrepService
         if (prep.Status != 1 && prep.Status != 2) throw AppException.Business("备料单状态不允许撤销");
 
         var invSvc = new InventoryService(_db);
-        var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId && d.ActualQty > 0).ToListAsync();
+        var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId).ToListAsync();
         foreach (var d in details)
         {
-            // 尝试从 PrepScanRecords 解冻（旧流程兼容），没有则从冻结库存直接解冻
+            // 旧流程兼容：PrepScanRecords 有记录就从记录解冻
             var scans = await _db.PrepScanRecords.Where(s => s.PrepDetailId == d.Id).ToListAsync();
             if (scans.Any())
             {
@@ -283,20 +287,14 @@ public class PrepService
             }
             else
             {
-                // 新流程：直接从冻结库存解冻（按 FrozenQty 分配到各库位）
+                // 新流程：直接全部释放该料号的 FrozenQty（不考虑 ActualQty，因为迁移 SQL 可能已清零）
                 var frozenInvs = await _db.Inventories
                     .Where(i => i.PartId == d.PartId && i.FrozenQty > 0).ToListAsync();
-                var remaining = d.ActualQty;
                 foreach (var inv in frozenInvs)
-                {
-                    if (remaining <= 0) break;
-                    var qty = Math.Min(remaining, inv.FrozenQty);
-                    await invSvc.ThawCoreAsync(d.PartId, inv.LocationId, qty, operatorId, "PrepThaw", prepId);
-                    remaining -= qty;
-                }
+                    await invSvc.ThawCoreAsync(d.PartId, inv.LocationId, inv.FrozenQty, operatorId, "PrepThaw", prepId);
             }
         }
-        prep.Status = 3;
+        prep.Status = 3; // 3=已撤销
         await _db.SaveChangesAsync();
     }
 

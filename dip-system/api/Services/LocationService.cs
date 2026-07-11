@@ -101,14 +101,20 @@ public class LocationService
             var code = row.Cell(1).GetString().Trim();
             if (string.IsNullOrEmpty(code)) continue;
             var wh = row.Cell(2).GetString().Trim();
-            var existing = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.LocationCode == code);
+            // 含软删除查询：未删→跳过，已删→恢复，不存在→新增
+            var existing = await _db.WarehouseLocations.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.LocationCode == code);
             if (existing != null)
             {
-                if (!string.IsNullOrEmpty(wh)) existing.Warehouse = wh;
-                existing.Zone = row.Cell(3).GetString().Trim();
-                existing.Row = row.Cell(4).GetString().Trim();
-                existing.Column = row.Cell(5).GetString().Trim();
-                if (row.Cell(6).TryGetValue(out decimal cap)) existing.MaxCapacity = cap;
+                if (existing.IsDeleted)
+                {
+                    existing.IsDeleted = false;
+                    if (!string.IsNullOrEmpty(wh)) existing.Warehouse = wh;
+                    existing.Zone = row.Cell(3).GetString().Trim();
+                    existing.Row = row.Cell(4).GetString().Trim();
+                    existing.Column = row.Cell(5).GetString().Trim();
+                    if (row.Cell(6).TryGetValue(out decimal cap)) existing.MaxCapacity = cap;
+                }
+                // 未删除的 → 跳过不更新
             }
             else
             {

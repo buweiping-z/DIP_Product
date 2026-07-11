@@ -10,23 +10,22 @@ export default function Dashboard() {
 
   if (!stats) return <p className="text-gray-400">加载中...</p>;
 
-  const { order_stats, prep_stats, prep_rate, inventory_alerts, today_ops } = stats;
+  const { order_stats, prep_stats, prep_rate, inventory_alerts, today_ops, refill_stats } = stats;
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">生产看板</h1>
 
       {/* Row 1: Production Status */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Order Status */}
+      <div className="grid grid-cols-3 gap-6 mb-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-bold mb-4">生产订单状态</h2>
-          <div className="grid grid-cols-4 gap-4 text-center">
+          <h2 className="text-lg font-bold mb-4">生产订单</h2>
+          <div className="grid grid-cols-2 gap-4 text-center">
             {[
-              { label: '总数', value: order_stats.total, color: 'text-gray-700' },
-              { label: '待处理', value: order_stats.pending, color: 'text-yellow-600' },
-              { label: '进行中', value: order_stats.in_progress, color: 'text-blue-600' },
+              { label: '待备料', value: order_stats.pending, color: 'text-yellow-600' },
+              { label: '待上线', value: order_stats.in_progress, color: 'text-blue-600' },
               { label: '已完成', value: order_stats.done, color: 'text-green-600' },
+              { label: '总订单', value: order_stats.total, color: 'text-gray-500' },
             ].map(s => (
               <div key={s.label}>
                 <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>
@@ -36,7 +35,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Prep Status */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold mb-4">备料状态</h2>
           <div className="grid grid-cols-3 gap-4 text-center">
@@ -44,6 +42,25 @@ export default function Dashboard() {
               { label: '待备料', value: prep_stats.pending, color: 'text-yellow-600' },
               { label: '已完成', value: prep_stats.done, color: 'text-green-600' },
               { label: '完成率', value: `${prep_rate}%`, color: 'text-blue-600' },
+            ].map(s => (
+              <div key={s.label}>
+                <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>
+                <div className="text-xs text-gray-500 mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">补料任务</h2>
+            <a href="/refill" className="text-blue-600 text-xs hover:underline">查看详情 →</a>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            {[
+              { label: '未完成', value: refill_stats?.active || 0, color: 'text-orange-600' },
+              { label: '已完成', value: refill_stats?.done || 0, color: 'text-green-600' },
+              { label: '今日', value: refill_stats?.today || 0, color: 'text-blue-600' },
             ].map(s => (
               <div key={s.label}>
                 <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>

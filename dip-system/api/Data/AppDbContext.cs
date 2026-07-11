@@ -67,6 +67,9 @@ public class AppDbContext : DbContext
     // ===== 出库 =====
     public DbSet<OutboundOrder> OutboundOrders { get; set; }
 
+    // ===== 补料 =====
+    public DbSet<RefillRecord> RefillRecords { get; set; }
+
     // ===== 审计 =====
     public DbSet<ScanRecord> ScanRecords { get; set; }
     public DbSet<SystemLog> SystemLogs { get; set; }
@@ -104,6 +107,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockCountItem>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OrderClosure>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OutboundOrder>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<RefillRecord>().HasQueryFilter(e => !e.IsDeleted);
 
         // ===== 表名映射 =====
         modelBuilder.Entity<Role>(e => e.ToTable("roles"));
@@ -140,6 +144,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SystemLog>(e => e.ToTable("system_logs"));
         modelBuilder.Entity<OrderClosure>(e => e.ToTable("order_closures"));
         modelBuilder.Entity<OutboundOrder>(e => e.ToTable("outbound_orders"));
+        modelBuilder.Entity<RefillRecord>(e => e.ToTable("refill_records"));
 
         // ===== 唯一索引 =====
         modelBuilder.Entity<Role>().HasIndex(e => e.RoleCode).IsUnique().HasDatabaseName("uq_roles_code");

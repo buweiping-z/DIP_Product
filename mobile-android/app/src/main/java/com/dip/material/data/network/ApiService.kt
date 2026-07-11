@@ -55,11 +55,27 @@ interface ApiService {
     suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<PrepScanResult>
 
     // ===== Refill =====
-    @GET("api/v1/prep/pending")
-    suspend fun getPendingItems(): ApiResponse<List<PendingItem>>
+    @GET("api/v1/refill/active")
+    suspend fun getActiveRefillBatches(): ApiResponse<List<Map<String, Any?>>>
 
-    @GET("api/v1/prep/refills")
-    suspend fun getRefillRecords(@Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50): ApiResponse<PageResult<Any>>
+    @GET("api/v1/refill/batch/{batchNo}")
+    suspend fun getRefillBatchDetail(@Path("batchNo") batchNo: String): ApiResponse<Map<String, Any?>>
+
+    @GET("api/v1/refill/parts")
+    suspend fun getRefillParts(@Query("product_name") productName: String): ApiResponse<List<PendingItem>>
+
+    @GET("api/v1/refill")
+    suspend fun getRefillRecords(
+        @Query("part_no") partNo: String? = null, @Query("location_code") locationCode: String? = null,
+        @Query("start_date") startDate: String? = null, @Query("end_date") endDate: String? = null,
+        @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50
+    ): ApiResponse<PageResult<Any>>
+
+    @POST("api/v1/refill/batch-start")
+    suspend fun batchStartRefill(@Body request: RefillBatchStartRequest): ApiResponse<Map<String, Any?>>
+
+    @POST("api/v1/refill/scan")
+    suspend fun scanRefill(@Body request: RefillScanRequest): ApiResponse<Map<String, Any?>>
 
     // ===== Return =====
     @POST("api/v1/return/scan")
