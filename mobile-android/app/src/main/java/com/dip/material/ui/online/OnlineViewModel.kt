@@ -77,7 +77,8 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(scanMsg = "未匹配到料号: $trimmed") }
             return
         }
-        if (match.onlineConsumedQty >= match.totalRequiredQty) {
+        val remaining = match.totalRequiredQty - match.onlineConsumedQty
+        if (remaining <= 0) {
             ScanSoundManager.playError()
             _state.update { it.copy(scanMsg = "${match.partNo} 已全部确认") }
             return
@@ -85,7 +86,7 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, scanMsg = null) }
-            repo.confirmOnline(detailId = match.id.toLong(), barcode = trimmed).fold(
+            repo.confirmOnline(detailId = match.id.toLong(), barcode = trimmed, quantity = remaining.toDouble()).fold(
                 onSuccess = { res ->
                     if (res.code == 0) {
                         ScanSoundManager.playSuccess()
