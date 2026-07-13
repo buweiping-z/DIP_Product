@@ -23,7 +23,6 @@ export default function SubstituteList() {
   // 新建/编辑表单
   const [parts, setParts] = useState<any[]>([]);
   const [rows, setRows] = useState<DetailRow[]>([emptyRow(0)]);
-  const [searchText, setSearchText] = useState('');
   // 编辑时已确认的明细（只读）
   const [existingConfirmed, setExistingConfirmed] = useState<any[]>([]);
 
@@ -52,7 +51,7 @@ export default function SubstituteList() {
 
   const openCreate = () => {
     setEditId(null); setExistingConfirmed([]);
-    setRows([emptyRow(0)]); setSearchText('');
+    setRows([emptyRow(0)]);
     loadParts(); setShowDialog(true);
   };
 
@@ -76,7 +75,6 @@ export default function SubstituteList() {
             quantity: d.quantity
           }))
         : [emptyRow(0)]);
-      setSearchText('');
       setShowDialog(true);
     } catch {}
   };
@@ -100,13 +98,6 @@ export default function SubstituteList() {
   const updateRow = (key: number, field: keyof DetailRow, value: number) => {
     setRows(prev => prev.map(r => r.key === key ? { ...r, [field]: value } : r));
   };
-
-  // 按料号搜索过滤部品
-  const filteredParts = searchText
-    ? parts.filter((p: any) =>
-        (p.part_no || '').toLowerCase().includes(searchText.toLowerCase()) ||
-        (p.part_name || '').toLowerCase().includes(searchText.toLowerCase()))
-    : parts;
 
   const handleSubmit = async () => {
     const validRows = rows.filter(r =>
@@ -218,16 +209,8 @@ export default function SubstituteList() {
               </div>
             )}
 
-            {/* 搜索筛选 */}
-            <input
-              className="w-full border rounded px-3 py-1.5 mb-2 text-sm"
-              placeholder="输入料号或名称筛选部品..."
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-            />
-
             {/* 可编辑明细表 */}
-            <div className="border rounded max-h-48 overflow-auto mb-2">
+            <div className="border rounded max-h-[60vh] overflow-auto mb-2">
               <table className="w-full text-sm">
                 <thead><tr className="bg-gray-50 sticky top-0">
                   <th className="p-1 text-left">替代部品</th><th className="p-1 text-left">来源库位</th>
@@ -237,7 +220,7 @@ export default function SubstituteList() {
                 </tr></thead>
                 <tbody>
                   {rows.map((row) => (
-                    <RowEditor key={row.key} row={row} parts={filteredParts}
+                    <RowEditor key={row.key} row={row} parts={parts}
                       loadStocks={loadStocks} updateRow={updateRow} delRow={delRow} />
                   ))}
                 </tbody>
@@ -305,6 +288,8 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
 }) {
   const [subStocks, setSubStocks] = useState<any[]>([]);
   const [origStocks, setOrigStocks] = useState<any[]>([]);
+  const [subSearch, setSubSearch] = useState('');
+  const [origSearch, setOrigSearch] = useState('');
 
   useEffect(() => {
     loadStocks(row.substitute_part_id).then(setSubStocks);
@@ -314,42 +299,58 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
     loadStocks(row.original_part_id).then(setOrigStocks);
   }, [row.original_part_id]);
 
+  // 各自独立过滤
+  const filteredSubParts = subSearch
+    ? parts.filter((p: any) =>
+        (p.part_no || '').toLowerCase().includes(subSearch.toLowerCase()) ||
+        (p.part_name || '').toLowerCase().includes(subSearch.toLowerCase()))
+    : parts;
+  const filteredOrigParts = origSearch
+    ? parts.filter((p: any) =>
+        (p.part_no || '').toLowerCase().includes(origSearch.toLowerCase()) ||
+        (p.part_name || '').toLowerCase().includes(origSearch.toLowerCase()))
+    : parts;
+
   return (
     <tr className="border-t">
-      <td className="p-1">
-        <select className="w-full border rounded text-xs p-1" value={row.substitute_part_id}
-          onChange={e => { const v = Number(e.target.value); updateRow(row.key, 'substitute_part_id', v); updateRow(row.key, 'source_location_id', 0); }}>
-          <option value={0}>--</option>
-          {parts.map(p => <option key={p.id} value={p.id}>{p.part_no}</option>)}
+      <td className="p-1 align-top">
+        <input className="w-full border rounded text-xs p-0.5 mb-0.5" placeholder="搜索替代部品..."
+          value={subSearch} onChange={e => setSubSearch(e.target.value)} />
+        <select className="w-full border rounded text-xs p-1" size={Math.min(6, filteredSubParts.length + 1)} value={row.substitute_part_id}
+          onChange={e => { const v = Number(e.target.value); updateRow(row.key, 'substitute_part_id', v); updateRow(row.key, 'source_location_id', 0); setSubSearch(''); }}>
+          <option value={0}>-- 请选择 --</option>
+          {filteredSubParts.map(p => <option key={p.id} value={p.id}>{p.part_no} - {p.part_name}</option>)}
         </select>
       </td>
-      <td className="p-1">
-        <select className="w-full border rounded text-xs p-1" value={row.source_location_id}
+      <td className="p-1 align-top">
+        <select className="w-full border rounded text-xs p-1" size={Math.min(6, subStocks.length + 1)} value={row.source_location_id}
           onChange={e => updateRow(row.key, 'source_location_id', Number(e.target.value))}>
-          <option value={0}>--</option>
+          <option value={0}>-- 请选择 --</option>
           {subStocks.map((s: any) => <option key={s.location_id} value={s.location_id}>{s.location_code}(可用{s.available_qty})</option>)}
         </select>
       </td>
-      <td className="p-1">
-        <select className="w-full border rounded text-xs p-1" value={row.original_part_id}
-          onChange={e => { const v = Number(e.target.value); updateRow(row.key, 'original_part_id', v); updateRow(row.key, 'target_location_id', 0); }}>
-          <option value={0}>--</option>
-          {parts.map(p => <option key={p.id} value={p.id}>{p.part_no}</option>)}
+      <td className="p-1 align-top">
+        <input className="w-full border rounded text-xs p-0.5 mb-0.5" placeholder="搜索缺料部品..."
+          value={origSearch} onChange={e => setOrigSearch(e.target.value)} />
+        <select className="w-full border rounded text-xs p-1" size={Math.min(6, filteredOrigParts.length + 1)} value={row.original_part_id}
+          onChange={e => { const v = Number(e.target.value); updateRow(row.key, 'original_part_id', v); updateRow(row.key, 'target_location_id', 0); setOrigSearch(''); }}>
+          <option value={0}>-- 请选择 --</option>
+          {filteredOrigParts.map(p => <option key={p.id} value={p.id}>{p.part_no} - {p.part_name}</option>)}
         </select>
       </td>
-      <td className="p-1">
-        <select className="w-full border rounded text-xs p-1" value={row.target_location_id}
+      <td className="p-1 align-top">
+        <select className="w-full border rounded text-xs p-1" size={Math.min(6, origStocks.length + 1)} value={row.target_location_id}
           onChange={e => updateRow(row.key, 'target_location_id', Number(e.target.value))}>
-          <option value={0}>--</option>
+          <option value={0}>-- 请选择 --</option>
           {origStocks.map((s: any) => <option key={s.location_id} value={s.location_id}>{s.location_code}(现存{s.available_qty})</option>)}
         </select>
       </td>
-      <td className="p-1">
+      <td className="p-1 align-top">
         <input type="number" className="w-16 border rounded text-xs p-1 text-right" min={0}
           value={row.quantity || ''} onChange={e => updateRow(row.key, 'quantity', Number(e.target.value))} />
       </td>
-      <td className="p-1">
-        <button onClick={() => delRow(row.key)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+      <td className="p-1 align-top">
+        <button onClick={() => delRow(row.key)} className="text-red-400 hover:text-red-600 text-xs mt-1">✕</button>
       </td>
     </tr>
   );
