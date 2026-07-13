@@ -92,6 +92,7 @@ data class PartStock(
     @SerializedName("available_qty") val availableQty: Double
 )
 data class PrepScanRequest(val barcode: String, @SerializedName("prep_detail_id") val prepDetailId: Int? = null)
+data class FinishPrepRequest(@SerializedName("detail_ids") val detailIds: List<Int>)
 
 data class PrepScanResult(
     val matched: Boolean = false,
@@ -184,4 +185,34 @@ data class SubstituteRequest(
     @SerializedName("source_location_id") val sourceLocationId: Int,
     @SerializedName("target_location_id") val targetLocationId: Int,
     val quantity: Double
+)
+
+// ===== Substitute Orders =====
+data class SubstituteOrderItem(
+    val id: Int = 0,
+    @SerializedName("order_no") val orderNo: String = "",
+    val status: Int = 0,
+    @SerializedName("detail_count") val detailCount: Int = 0,
+    @SerializedName("confirmed_count") val confirmedCount: Int = 0,
+    @SerializedName("created_at") val createdAt: String? = null
+)
+
+data class SubstituteOrderDetail(
+    @SerializedName("order_id") val orderId: Int = 0,
+    @SerializedName("order_no") val orderNo: String = "",
+    val status: Int = 0,
+    @SerializedName("confirmed_count") val confirmedCount: Int = 0,
+    @SerializedName("total_count") val totalCount: Int = 0,
+    val details: List<SubstituteDetailItem> = emptyList()
+)
+
+data class SubstituteDetailItem(
+    val id: Int = 0,
+    @SerializedName("order_id") val orderId: Int = 0,
+    @SerializedName("original_part_no") val originalPartNo: String = "",
+    @SerializedName("substitute_part_no") val substitutePartNo: String = "",
+    @SerializedName("source_location_code") val sourceLocationCode: String = "",
+    @SerializedName("target_location_code") val targetLocationCode: String = "",
+    val quantity: Double = 0.0,
+    val status: Int = 0  // 1=待确认, 2=已确认
 )

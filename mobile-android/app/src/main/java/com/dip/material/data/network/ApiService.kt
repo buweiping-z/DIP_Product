@@ -51,6 +51,9 @@ interface ApiService {
     @POST("api/v1/prep/{prepId}/scan")
     suspend fun scanPrepItem(@Path("prepId") prepId: Int, @Body request: PrepScanRequest): Map<String, Any?>
 
+    @POST("api/v1/prep/{prepId}/finish")
+    suspend fun finishPrep(@Path("prepId") prepId: Int, @Body request: FinishPrepRequest): ApiResponse<Any?>
+
     @POST("api/v1/prep/{prepId}/kit-check")
     suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<PrepScanResult>
 
@@ -104,7 +107,18 @@ interface ApiService {
     @POST("api/v1/online/confirm")
     suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<Map<String, Any?>>
 
-    // ===== Substitute =====
-    @POST("api/v1/inventory/substitute")
-    suspend fun createSubstitute(@Body request: SubstituteRequest): ApiResponse<PrepScanResult>
+    // ===== Substitute Orders =====
+    @GET("api/v1/substitute/orders")
+    suspend fun getSubstituteOrders(
+        @Query("status") status: Int? = 1, @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50
+    ): ApiResponse<PageResult<SubstituteOrderItem>>
+
+    @GET("api/v1/substitute/orders/{id}/details")
+    suspend fun getSubstituteOrderDetails(@Path("id") orderId: Int): ApiResponse<SubstituteOrderDetail>
+
+    @POST("api/v1/substitute/orders/{id}/details/{detailId}/confirm")
+    suspend fun confirmSubstituteDetail(@Path("id") orderId: Int, @Path("detailId") detailId: Int): ApiResponse<Map<String, Any?>>
+
+    @POST("api/v1/substitute/orders/{id}/confirm")
+    suspend fun confirmSubstituteAll(@Path("id") orderId: Int): ApiResponse<Map<String, Any?>>
 }

@@ -37,6 +37,7 @@ class AppRepository(val context: Context) {
         catch (e: Exception) { Result.failure(Exception("网络连接失败: ${e.message}")) }
     }
     suspend fun checkKitComplete(prepId: Int) = call { api.checkKitComplete(prepId) }
+    suspend fun finishPrep(prepId: Int, detailIds: List<Int>) = call { api.finishPrep(prepId, FinishPrepRequest(detailIds)) }
 
     // Refill
     suspend fun getActiveRefillBatches() = call { api.getActiveRefillBatches() }
@@ -69,8 +70,16 @@ class AppRepository(val context: Context) {
     suspend fun confirmOnline(detailId: Long, barcode: String, quantity: Double = 1.0) =
         call { api.confirmOnline(OnlineConfirmRequest(detailId, barcode, quantity)) }
 
-    // Substitute
-    suspend fun createSubstitute(originalPartId: Int, substitutePartId: Int,
-                                 sourceLocationId: Int, targetLocationId: Int, quantity: Double) =
-        call { api.createSubstitute(SubstituteRequest(originalPartId, substitutePartId, sourceLocationId, targetLocationId, quantity)) }
+    // Substitute Orders
+    suspend fun getSubstituteOrders(status: Int = 1): Result<ApiResponse<PageResult<SubstituteOrderItem>>> =
+        call { api.getSubstituteOrders(status = status) }
+
+    suspend fun getSubstituteOrderDetails(orderId: Int): Result<ApiResponse<SubstituteOrderDetail>> =
+        call { api.getSubstituteOrderDetails(orderId) }
+
+    suspend fun confirmSubstituteDetail(orderId: Int, detailId: Int): Result<ApiResponse<Map<String, Any?>>> =
+        call { api.confirmSubstituteDetail(orderId, detailId) }
+
+    suspend fun confirmSubstituteAll(orderId: Int): Result<ApiResponse<Map<String, Any?>>> =
+        call { api.confirmSubstituteAll(orderId) }
 }
