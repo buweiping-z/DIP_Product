@@ -118,10 +118,14 @@ public class SubstituteService
 
         foreach (var d in details)
         {
-            var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.OriginalPartId);
-            var subPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.SubstitutePartId);
-            var srcLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.SourceLocationId);
-            var tgtLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.TargetLocationId);
+            var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.OriginalPartId)
+                ?? throw AppException.NotFound($"缺料部品 {d.OriginalPartId} 不存在");
+            var subPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.SubstitutePartId)
+                ?? throw AppException.NotFound($"替代部品 {d.SubstitutePartId} 不存在");
+            var srcLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.SourceLocationId)
+                ?? throw AppException.NotFound($"来源库位 {d.SourceLocationId} 不存在");
+            var tgtLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.TargetLocationId)
+                ?? throw AppException.NotFound($"目标库位 {d.TargetLocationId} 不存在");
 
             if (d.OriginalPartId == d.SubstitutePartId && d.SourceLocationId == d.TargetLocationId)
                 throw AppException.Business("来源和目标不能完全相同");
@@ -129,10 +133,10 @@ public class SubstituteService
             _db.SubstituteDetails.Add(new SubstituteDetail
             {
                 OrderId = order.Id,
-                OriginalPartId = d.OriginalPartId, OriginalPartNo = part?.PartNo ?? "",
-                SubstitutePartId = d.SubstitutePartId, SubstitutePartNo = subPart?.PartNo ?? "",
-                SourceLocationId = d.SourceLocationId, SourceLocationCode = srcLoc?.LocationCode ?? "",
-                TargetLocationId = d.TargetLocationId, TargetLocationCode = tgtLoc?.LocationCode ?? "",
+                OriginalPartId = d.OriginalPartId, OriginalPartNo = part.PartNo,
+                SubstitutePartId = d.SubstitutePartId, SubstitutePartNo = subPart.PartNo,
+                SourceLocationId = d.SourceLocationId, SourceLocationCode = srcLoc.LocationCode,
+                TargetLocationId = d.TargetLocationId, TargetLocationCode = tgtLoc.LocationCode,
                 Quantity = d.Quantity, Status = 1
             });
         }
@@ -152,9 +156,6 @@ public class SubstituteService
 
         if (order.Status != 1) throw AppException.Business("仅待确认订单可编辑");
 
-        // 保留已确认明细（不可修改）
-        var confirmedDetails = order.Details.Where(d => d.Status == 2).ToList();
-
         // 删除未确认明细
         var unconfirmedDetails = order.Details.Where(d => d.Status == 1).ToList();
         _db.SubstituteDetails.RemoveRange(unconfirmedDetails);
@@ -162,18 +163,22 @@ public class SubstituteService
         // 追加新明细
         foreach (var d in newDetails)
         {
-            var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.OriginalPartId);
-            var subPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.SubstitutePartId);
-            var srcLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.SourceLocationId);
-            var tgtLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.TargetLocationId);
+            var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.OriginalPartId)
+                ?? throw AppException.NotFound($"缺料部品 {d.OriginalPartId} 不存在");
+            var subPart = await _db.Parts.FirstOrDefaultAsync(p => p.Id == d.SubstitutePartId)
+                ?? throw AppException.NotFound($"替代部品 {d.SubstitutePartId} 不存在");
+            var srcLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.SourceLocationId)
+                ?? throw AppException.NotFound($"来源库位 {d.SourceLocationId} 不存在");
+            var tgtLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == d.TargetLocationId)
+                ?? throw AppException.NotFound($"目标库位 {d.TargetLocationId} 不存在");
 
             _db.SubstituteDetails.Add(new SubstituteDetail
             {
                 OrderId = order.Id,
-                OriginalPartId = d.OriginalPartId, OriginalPartNo = part?.PartNo ?? "",
-                SubstitutePartId = d.SubstitutePartId, SubstitutePartNo = subPart?.PartNo ?? "",
-                SourceLocationId = d.SourceLocationId, SourceLocationCode = srcLoc?.LocationCode ?? "",
-                TargetLocationId = d.TargetLocationId, TargetLocationCode = tgtLoc?.LocationCode ?? "",
+                OriginalPartId = d.OriginalPartId, OriginalPartNo = part.PartNo,
+                SubstitutePartId = d.SubstitutePartId, SubstitutePartNo = subPart.PartNo,
+                SourceLocationId = d.SourceLocationId, SourceLocationCode = srcLoc.LocationCode,
+                TargetLocationId = d.TargetLocationId, TargetLocationCode = tgtLoc.LocationCode,
                 Quantity = d.Quantity, Status = 1
             });
         }
@@ -184,7 +189,7 @@ public class SubstituteService
 
     // ===== 取消订单 =====
 
-    public async Task CancelAsync(long orderId)
+    public async Task<object> CancelAsync(long orderId)
     {
         var order = await _db.SubstituteOrders.FirstOrDefaultAsync(o => o.Id == orderId)
             ?? throw AppException.NotFound($"订单 {orderId} 不存在");
@@ -199,6 +204,8 @@ public class SubstituteService
             d.Status = 1;
 
         await _db.SaveChangesAsync();
+
+        return new { order_id = orderId, status = 3 };
     }
 
     // ===== 扫码确认单条明细（不执行移库）=====
