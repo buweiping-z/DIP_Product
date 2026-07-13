@@ -100,6 +100,16 @@ export default function SubstituteList() {
   };
 
   const handleSubmit = async () => {
+    // 检查未完成的行
+    const incomplete = rows.filter(r =>
+      !(r.original_part_id > 0 && r.substitute_part_id > 0 &&
+        r.source_location_id > 0 && r.target_location_id > 0 && r.quantity > 0));
+    if (incomplete.length > 0 && existingConfirmed.length === 0 && rows.length === incomplete.length) {
+      setMsg('请完善明细后再提交：替代部品、来源库位、缺料部品、目标库位、数量均不能为空'); return;
+    }
+    if (incomplete.length > 0) {
+      setMsg(`第 ${incomplete.map(r => rows.findIndex(x => x.key === r.key) + 1).join(', ')} 行信息不完整，请补充后再提交`); return;
+    }
     const validRows = rows.filter(r =>
       r.original_part_id > 0 && r.substitute_part_id > 0 &&
       r.source_location_id > 0 && r.target_location_id > 0 && r.quantity > 0);
@@ -292,11 +302,23 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
   const [origSearch, setOrigSearch] = useState('');
 
   useEffect(() => {
-    loadStocks(row.substitute_part_id).then(setSubStocks);
+    loadStocks(row.substitute_part_id).then(stocks => {
+      setSubStocks(stocks);
+      // 默认选第一个可用库位
+      if (stocks.length > 0 && row.source_location_id === 0) {
+        updateRow(row.key, 'source_location_id', stocks[0].location_id);
+      }
+    });
   }, [row.substitute_part_id]);
 
   useEffect(() => {
-    loadStocks(row.original_part_id).then(setOrigStocks);
+    loadStocks(row.original_part_id).then(stocks => {
+      setOrigStocks(stocks);
+      // 默认选第一个目标库位
+      if (stocks.length > 0 && row.target_location_id === 0) {
+        updateRow(row.key, 'target_location_id', stocks[0].location_id);
+      }
+    });
   }, [row.original_part_id]);
 
   // 各自独立过滤
@@ -311,9 +333,13 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
         (p.part_name || '').toLowerCase().includes(origSearch.toLowerCase()))
     : parts;
 
+  // 当前选中库位的可用量
+  const selectedSubStock = subStocks.find((s: any) => s.location_id === row.source_location_id);
+  const maxQty = selectedSubStock?.available_qty ?? 0;
+
   return (
     <tr className="border-t">
-      <td className="p-1 align-top">
+      <td className="p-1 align-top w-[18%]">
         <input className="w-full border rounded text-xs p-0.5 mb-0.5" placeholder="搜索替代部品..."
           value={subSearch} onChange={e => setSubSearch(e.target.value)} />
         <select className="w-full border rounded text-xs p-1" size={Math.min(6, filteredSubParts.length + 1)} value={row.substitute_part_id}
@@ -322,14 +348,16 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
           {filteredSubParts.map(p => <option key={p.id} value={p.id}>{p.part_no} - {p.part_name}</option>)}
         </select>
       </td>
-      <td className="p-1 align-top">
+      <td className="p-1 align-top w-[14%]">
         <select className="w-full border rounded text-xs p-1" size={Math.min(6, subStocks.length + 1)} value={row.source_location_id}
           onChange={e => updateRow(row.key, 'source_location_id', Number(e.target.value))}>
           <option value={0}>-- 请选择 --</option>
-          {subStocks.map((s: any) => <option key={s.location_id} value={s.location_id}>{s.location_code}(可用{s.available_qty})</option>)}
+          {subStocks.map((s: any) => (
+            <option key={s.location_id} value={s.location_id}>{s.location_code} (可用{s.available_qty})</option>
+          ))}
         </select>
       </td>
-      <td className="p-1 align-top">
+      <td className="p-1 align-top w-[18%]">
         <input className="w-full border rounded text-xs p-0.5 mb-0.5" placeholder="搜索缺料部品..."
           value={origSearch} onChange={e => setOrigSearch(e.target.value)} />
         <select className="w-full border rounded text-xs p-1" size={Math.min(6, filteredOrigParts.length + 1)} value={row.original_part_id}
@@ -338,18 +366,25 @@ function RowEditor({ row, parts, loadStocks, updateRow, delRow }: {
           {filteredOrigParts.map(p => <option key={p.id} value={p.id}>{p.part_no} - {p.part_name}</option>)}
         </select>
       </td>
-      <td className="p-1 align-top">
+      <td className="p-1 align-top w-[14%]">
         <select className="w-full border rounded text-xs p-1" size={Math.min(6, origStocks.length + 1)} value={row.target_location_id}
           onChange={e => updateRow(row.key, 'target_location_id', Number(e.target.value))}>
           <option value={0}>-- 请选择 --</option>
-          {origStocks.map((s: any) => <option key={s.location_id} value={s.location_id}>{s.location_code}(现存{s.available_qty})</option>)}
+          {origStocks.map((s: any) => (
+            <option key={s.location_id} value={s.location_id}>{s.location_code} (现存{s.available_qty})</option>
+          ))}
         </select>
       </td>
-      <td className="p-1 align-top">
-        <input type="number" className="w-16 border rounded text-xs p-1 text-right" min={0}
-          value={row.quantity || ''} onChange={e => updateRow(row.key, 'quantity', Number(e.target.value))} />
+      <td className="p-1 align-top w-[11%]">
+        <input type="number" className="w-full border rounded text-xs p-1 text-right"
+          min={1} max={maxQty || 999999}
+          value={row.quantity || ''}
+          onChange={e => updateRow(row.key, 'quantity', Number(e.target.value))} />
+        {selectedSubStock && (
+          <div className="text-right text-gray-400" style={{fontSize:'10px'}}>最多 {maxQty}</div>
+        )}
       </td>
-      <td className="p-1 align-top">
+      <td className="p-1 align-top w-[4%]">
         <button onClick={() => delRow(row.key)} className="text-red-400 hover:text-red-600 text-xs mt-1">✕</button>
       </td>
     </tr>
