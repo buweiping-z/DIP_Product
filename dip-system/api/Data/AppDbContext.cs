@@ -64,6 +64,10 @@ public class AppDbContext : DbContext
     // ===== 替代料记录 =====
     public DbSet<SubstituteRecord> SubstituteRecords { get; set; }
 
+    // ===== 替代料移库订单 =====
+    public DbSet<SubstituteOrder> SubstituteOrders { get; set; }
+    public DbSet<SubstituteDetail> SubstituteDetails { get; set; }
+
     // ===== 出库 =====
     public DbSet<OutboundOrder> OutboundOrders { get; set; }
 
@@ -108,6 +112,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<OrderClosure>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OutboundOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<RefillRecord>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<SubstituteOrder>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<SubstituteDetail>().HasQueryFilter(e => !e.IsDeleted);
 
         // ===== 表名映射 =====
         modelBuilder.Entity<Role>(e => e.ToTable("roles"));
@@ -145,6 +151,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<OrderClosure>(e => e.ToTable("order_closures"));
         modelBuilder.Entity<OutboundOrder>(e => e.ToTable("outbound_orders"));
         modelBuilder.Entity<RefillRecord>(e => e.ToTable("refill_records"));
+        modelBuilder.Entity<SubstituteOrder>(e => e.ToTable("substitute_orders"));
+        modelBuilder.Entity<SubstituteDetail>(e => e.ToTable("substitute_details"));
 
         // ===== 唯一索引 =====
         modelBuilder.Entity<Role>().HasIndex(e => e.RoleCode).IsUnique().HasDatabaseName("uq_roles_code");
@@ -162,6 +170,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockCount>().HasIndex(e => e.CountNo).IsUnique().HasDatabaseName("uq_stock_counts_no");
         modelBuilder.Entity<OrderClosure>().HasIndex(e => e.ProductionOrderId).IsUnique().HasDatabaseName("uq_order_closures_order");
         modelBuilder.Entity<OutboundOrder>().HasIndex(e => e.OrderNo).IsUnique().HasDatabaseName("uq_outbound_orders_no");
+        modelBuilder.Entity<SubstituteOrder>().HasIndex(e => e.OrderNo).IsUnique().HasDatabaseName("uq_substitute_orders_no");
 
         // ===== 外键 + 级联删除 =====
         modelBuilder.Entity<BomItem>()
@@ -204,6 +213,12 @@ public class AppDbContext : DbContext
             .HasOne(e => e.Inventory)
             .WithMany()
             .HasForeignKey(e => e.InventoryId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SubstituteDetail>()
+            .HasOne(e => e.Order)
+            .WithMany(o => o.Details)
+            .HasForeignKey(e => e.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // ===== RefreshToken 配置 =====
