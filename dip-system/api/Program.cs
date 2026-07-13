@@ -149,6 +149,55 @@ using (var scope = app.Services.CreateScope())
                 )";
             cmd.ExecuteNonQuery();
         }
+        // 补建替代料移库订单表
+        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'substitute_orders'";
+        var subOrderExists = (long)cmd.ExecuteScalar()! > 0;
+        if (!subOrderExists)
+        {
+            cmd.CommandText = @"
+                CREATE TABLE substitute_orders (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL DEFAULT 0,
+                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NULL,
+                    created_by BIGINT NULL,
+                    updated_by BIGINT NULL,
+                    order_no VARCHAR(50) NOT NULL,
+                    status INT NOT NULL DEFAULT 1,
+                    operator_id BIGINT NOT NULL DEFAULT 0,
+                    UNIQUE INDEX uq_substitute_orders_no (order_no)
+                )";
+            cmd.ExecuteNonQuery();
+        }
+        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'substitute_details'";
+        var subDetailExists = (long)cmd.ExecuteScalar()! > 0;
+        if (!subDetailExists)
+        {
+            cmd.CommandText = @"
+                CREATE TABLE substitute_details (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL DEFAULT 0,
+                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NULL,
+                    created_by BIGINT NULL,
+                    updated_by BIGINT NULL,
+                    order_id BIGINT NOT NULL,
+                    original_part_id BIGINT NOT NULL,
+                    original_part_no VARCHAR(200) NOT NULL,
+                    substitute_part_id BIGINT NOT NULL,
+                    substitute_part_no VARCHAR(200) NOT NULL,
+                    source_location_id BIGINT NOT NULL,
+                    source_location_code VARCHAR(100) NOT NULL,
+                    target_location_id BIGINT NOT NULL,
+                    target_location_code VARCHAR(100) NOT NULL,
+                    quantity DECIMAL(18,4) NOT NULL DEFAULT 0,
+                    status INT NOT NULL DEFAULT 1
+                )";
+            cmd.ExecuteNonQuery();
+        }
+
         // 补 batch_no 字段（旧表可能没有）
         try
         {
