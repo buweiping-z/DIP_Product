@@ -32,7 +32,10 @@ fun HomeScreen(
     LaunchedEffect(Unit) { viewModel.loadPendingTasks() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("DIP 物料管理") }, actions = { IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "退出") } },
+        topBar = { TopAppBar(title = { Text("DIP 物料管理") }, actions = {
+            IconButton(onClick = { viewModel.loadPendingTasks() }) { Icon(Icons.Default.Refresh, "刷新") }
+            IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "退出") }
+        },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
