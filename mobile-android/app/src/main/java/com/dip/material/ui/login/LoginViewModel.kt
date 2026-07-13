@@ -64,6 +64,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                         prefs.savePassword(password)
                         _state.update { it.copy(isLoggedIn = true, isLoading = false) }
                     } else {
+                        prefs.savePassword("") // 登录失败清除旧密码，避免反复用错误密码
                         _state.update { it.copy(isLoading = false, error = res.message ?: "登录失败") }
                     }
                 },
