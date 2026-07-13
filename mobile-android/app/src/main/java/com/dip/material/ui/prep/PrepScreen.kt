@@ -24,16 +24,14 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     var inputBarcode by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
 
-    // 全部完成后自动关闭扫码窗口并返回
+    // 全部完成后不自动关闭，等用户手动退出时再跑完成流程
     LaunchedEffect(state.allDone) {
         if (state.allDone) {
-            showScanner = false
-            kotlinx.coroutines.delay(800)
-            viewModel.clearSelection()
+            // 不做任何自动操作，用户自己关闭
         }
     }
 
-    // 扫码结果音效（key 为递增计数器，确保每次扫描都触发）
+    // 扫码结果音效
     LaunchedEffect(state.scanEventId) {
         if (state.scanEventId > 0) {
             if (state.lastScanOk) ScanSoundManager.playSuccess()
@@ -43,9 +41,8 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
 
     // 扫码回调
     fun onScanned(code: String) {
-        val trimmed = code.trim()
-        viewModel.scanItem(trimmed)
-        inputBarcode = trimmed
+        viewModel.scanItem(code.trim())
+        inputBarcode = code.trim()
     }
 
     Scaffold(
@@ -57,13 +54,13 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (state.selectedOrder != null) {
-                // Half-screen scanner (持续显示)
+                // 扫码区域
                 if (showScanner) {
-                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
-                        QrCodeScanner(onBarcodeScanned = { onScanned(it) }, isActive = showScanner)
-                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // 手动退出扫描
-                            Button(onClick = { showScanner = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
+                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.38f)) {
+                        QrCodeScanner(onBarcodeScanned = { onScanned(it) })
+                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                            Button(onClick = { showScanner = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
                         }
                     }
                 }
@@ -71,7 +68,7 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                 // 手动输入区
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it },
-                        label = { Text("手动输入料号") }, modifier = Modifier.weight(1f), singleLine = true)
+                        label = { Text("输入料号(>14位)") }, modifier = Modifier.weight(1f), singleLine = true)
                     Button(onClick = { if (inputBarcode.isNotBlank()) { viewModel.scanItem(inputBarcode.trim()); inputBarcode = "" } },
                         enabled = inputBarcode.isNotBlank()) { Text("确认") }
                     IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, if (showScanner) "关闭" else "扫码") }
@@ -80,7 +77,7 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
                 state.scanMsg?.let { msg ->
-                    val isError = msg.contains("未匹配") || msg.contains("不足")
+                    val isError = msg.contains("未匹配") || msg.contains("不足") || msg.contains("无效")
                     Surface(
                         color = if (isError) Color(0xFFD32F2F) else Color(0xFF388E3C),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
@@ -94,15 +91,29 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                 state.selectedOrder?.let { order ->
                     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         item { Text("备料单: ${order.orderNo} | 产品: ${order.productName}", style = MaterialTheme.typography.titleSmall) }
+                        item { Text("条码须>14位，逐袋扫码确认", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+                        // 进度计数器：已完成料号数 / 总料号数
+                        val totalParts = order.details?.size ?: 0
+                        val doneParts = order.details?.count { d ->
+                            d.status == 2 || (state.scannedCounts[d.id] ?: 0) > 0
+                        } ?: 0
+                        item {
+                            Text("已完成料号: $doneParts / $totalParts",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
+                        }
                         order.details?.let { details ->
                             items(details) { d ->
                                 val isDone = d.status == 2
                                 val isShort = d.status == 3
+                                val scannedQty = state.scannedCounts[d.id] ?: 0
+                                val hasProgress = scannedQty > 0 && !isDone
                                 Card(Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
                                         containerColor = when {
                                             isDone -> MaterialTheme.colorScheme.primaryContainer
                                             isShort -> MaterialTheme.colorScheme.errorContainer
+                                            hasProgress -> MaterialTheme.colorScheme.secondaryContainer
                                             else -> MaterialTheme.colorScheme.surface
                                         })) {
                                     Column(Modifier.padding(10.dp)) {
@@ -112,18 +123,21 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                                                 when {
                                                     isDone -> "✓"
                                                     isShort -> "缺货"
+                                                    hasProgress -> "已备$scannedQty"
                                                     else -> "待确认"
                                                 },
                                                 color = when {
                                                     isDone -> Color(0xFF4CAF50)
                                                     isShort -> MaterialTheme.colorScheme.error
+                                                    hasProgress -> Color(0xFF2196F3)
                                                     else -> Color.Gray
                                                 },
-                                                fontSize = 14.sp
+                                                fontSize = 13.sp
                                             )
                                         }
+                                        Text("需求: ${d.requiredQty.toInt()}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                         d.stocks?.takeIf { it.isNotEmpty() }?.let { stocks ->
-                                            Text(stocks.joinToString(" | ") { "${it.locationCode}" },
+                                            Text(stocks.joinToString(" | ") { "${it.locationCode}:${it.availableQty.toInt()}" },
                                                 style = MaterialTheme.typography.bodySmall, fontSize = 11.sp)
                                         }
                                     }
