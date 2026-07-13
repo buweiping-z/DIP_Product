@@ -236,3 +236,91 @@ dotnet publish -c Release --self-contained -r win-x64
 - `prep-scan-records-dependency-hell.md` — 废弃数据结构的连锁依赖
 - `startup-data-safety.md` — 启动脚本数据安全
 - `freezecore-auto-create-lot.md` — FreezeCoreAsync 自动补批次
+
+### 2026-07-12 — 手机端扫码重构 + 上架/备料/上线流程重写
+
+**扫码模块重构：**
+- 去重逻辑删除，改为按钮触发模式：`BarcodeAnalyzer.isActive` 默认 `false`
+- 按扫码按钮 → `isActive = true` → 识别到条码 → 自动 `isActive = false` 停止
+- `QrCodeScanner` 布局重构：顶部提示文字 + 中部圆角相机面板 + 底部大扫码按钮（单手操作）
+- `ScannerOverlay` 底部提示文字移除
+
+**料号解析规则（全局统一）：** ≤14位取全部，>14位取 length-4（去末尾4位）
+
+**上架流程重写：**
+- 新四步：①扫部品→解析→查API→显示库存 ②扫库位→匹配 ③逐袋扫码确认→"完成扫描" ④输入总数量→上传
+
+**备料流程重写：**
+- 扫描阶段：只核对料号匹配+本地累加，不调后端写操作
+- 退出时调 `POST /prep/{id}/finish` 传入已扫明细ID，后端标记 Status=2
+- 手机端自维护 `scannedCounts` 计数器，不依赖后端 `ActualQty`（该字段被冻结系统占用）
+- 条码必须>14位，用解析后的料号匹配
+
+**上线流程重写：**
+- 与备料相同模式：扫描核对+本地累加，退出时逐条调 `confirmOnline`
+
+**后端修复：**
+- `RefreezeActiveOrdersAsync`：`p.Status != 3` → `p.Status == 1`，避免已完成备料单明细被重置
+- 新增 `POST /prep/{id}/finish` 端点，接收 `{ detail_ids: [...] }`
+- `ScanPrepAsync` 不再修改 `ActualQty`，只验证匹配
+
+### 2026-07-12 — 上线确认流程修复
+
+**上线确认去数量化（重大设计变更）：**
+- 上线目的：防错（确认用对料），不管理数量
+- `ConfirmAsync` 单次确认不再扣减冻结库存，仅创建 `OnlineConfirm` 记录
+- 订单完成条件：`已确认明细数 >= 总明细数`（每个料号至少确认一次），不再用 `totalConsumed >= totalRequired`
+- 订单完成时一次性将全部 `FrozenQty` 扣减至 0（`TotalQty` 同步减少）
+
+**手机端修复：**
+- 上线退出再进：`scannedCounts` 从后端 `online_consumed_qty` 恢复，已确认料号不重扫
+- 增量提交：退出时只提交 `scannedCounts - initialScannedCounts`，避免重复计数
+- 列表刷新时序：`loadOrders()` 改为 suspend，等 `confirmOnline`/`finishPrep` 完成后刷新
+- 上线/备料扫描界面添加料号完成进度计数器 `已完成: 2/7`
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 36 | 上线退出再进需重扫 | selectOrder 重置 scannedCounts=emptyMap，忽略 onlineConsumedQty | 从 onlineConsumedQty 恢复，跟踪 initialScannedCounts，退出只提交增量 |
+| 37 | 全部确认后订单不完成 | totalConsumed(扫描次数) >= totalRequired(BOM总量) 永远达不到 | 改为已确认明细数 >= 总明细数 |
+| 38 | 上线完成冻结未清零 | 单次 confirmOnline 只扣扫描数量 | 单次不扣，订单完成时一次性扣减全部 FrozenQty |
+| 39 | 退出扫描界面列表不刷新 | loadOrders() 和提交接口并发跑 | loadOrders 改 suspend，等提交完成后再刷新 |
+
+**新增避坑经验（memory）：**
+- `online-completion-by-detail-count.md` — 上线完成用明细确认数判断
+- `online-deduct-on-complete.md` — 订单完成时一次性扣减全部冻结库存
+- `suspend-await-submit-then-refresh.md` — 提交流程等完成后再刷新列表
+
+### 2026-07-13 — 替代料移库功能重做 + 手机端多项修复
+
+**替代料移库重做：**
+- 新数据模型：`substitute_orders` + `substitute_details`（替代旧的 `substitute_records` 单表）
+- 网页端：订单列表 + 多明细行新建/编辑弹窗（替代/缺料部品各自独立搜索筛选 + 默认选第一个库位 + 数量上限提示 + 空行提醒）
+- 手机端：订单列表 → 扫码确认（仅扫替代料号，>14位解析，多匹配候选列表弹出选择，按来源库位排序）
+- 后端：8 端点 API（CRUD + 逐条确认 + 全部提交事务移库 + Refreeze）
+- 旧 `substitute_records` 表保留不动
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 40 | 新建移库订弹窗替代/缺料共用筛选框 | 全局 searchText 同时过滤两个下拉框 | RowEditor 内各自独立搜索（subSearch/origSearch） |
+| 41 | 新建移库选库位列宽不够/数量无上限/空行无声 | 列宽固定/没读可用量/未检查不完整行 | 加宽列+选库位读取max+提交时提示第几行不完整 |
+| 42 | 选部品后库位不自动填 | 未做默认选择 | 加载库存后自动选第一个，多库位可下拉换 |
+| 43 | 手机端替代提交完成不退出 | confirmAll 只刷新列表未清选择 | confirmAll 成功后调用 clearSelection 回到订单列表 |
+| 44 | 备料界面缺需求数量 | 仅显示料号，操作员看不到需要多少 | 后端列表加 total_required_qty + 手机端卡片显示"需求: X" |
+| 45 | 登录页扫码不自动填充用户名 | QrCodeScanner 的 isActive 参数未生效，内部 analyzer.isActive 为 false | LaunchedEffect 监听 isActive 自动启动扫描 |
+| 46 | 首页统计卡片无用 | 显示"今日上架/退料/备料扫描"无实际操作价值 | 改用黄色未完成任务栏（待备料/待上线/待出库/补料中/待移库）+ 刷新按钮 |
+| 47 | 退出登录后重新进网络不通 | 手机 WiFi+移动数据双开，请求走移动数据通道 | OkHttp 强制绑定 WiFi 网卡（WifiSocketFactory + network.bindSocket） |
+| 48 | 登录页默认 admin 用户 | 硬编码默认值 | 用户名密码默认空，从 DataStore 加载上次保存值 |
+| 49 | 登录失败密码未清 | 旧密码一直保存，改密码后反复用 | 登录失败时 savePassword("") 清除 |
+| 50 | 补料完成不退扫码窗口 | goDone 后 step=0 但未关扫码 | LaunchedEffect(state.step) 监听 step=0 时 showScanner=false |
+| 51 | 补料完成/退回不刷新批次列表 | goDone/clearAll 后未 checkActiveBatches | 添加 loadBatches() 调用 |
+| 52 | 补料 NG 匹配显示绿色 | "未匹配"不含"不匹配"，漏过红色判断 | 关键词加"未匹配"和"无效" |
+
+**新增避坑经验（memory）：**
+- `android-wifi-mobile-data-dual-channel.md` — Android WiFi+移动数据双开导致请求走错通道
+- `ensure-created-missing-tables.md` — EnsureCreated() 不给已有数据库建新表
+- `qrcode-scanner-isactive-not-working.md` — QrCodeScanner isActive 参数未生效
+- `datastore-credential-persistence.md` — DataStore 持久化登录凭据模式
