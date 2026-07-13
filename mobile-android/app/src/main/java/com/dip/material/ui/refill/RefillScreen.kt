@@ -26,6 +26,9 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
 
     LaunchedEffect(Unit) { viewModel.loadBatches() }
 
+    // 回到主页(step=0)时自动关闭扫码窗口
+    LaunchedEffect(state.step) { if (state.step == 0) showScanner = false }
+
     // 退出时关闭扫码窗口
     DisposableEffect(Unit) { onDispose { showScanner = false } }
 
@@ -90,7 +93,7 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
 
             if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.scanMsg?.let { msg ->
-                val ok = !msg.contains("不匹配") && !msg.contains("失败") && !msg.contains("未找到") && !msg.contains("请扫")
+                val ok = !msg.contains("不匹配") && !msg.contains("失败") && !msg.contains("未找到") && !msg.contains("未匹配") && !msg.contains("无效")
                 Surface(color = if (ok) Color(0xFF388E3C) else Color(0xFFD32F2F), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Text(msg, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp)
                 }

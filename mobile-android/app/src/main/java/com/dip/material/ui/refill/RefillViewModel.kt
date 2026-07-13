@@ -209,8 +209,9 @@ class RefillViewModel(application: Application) : AndroidViewModel(application) 
     fun goPickDone() { _state.update { it.copy(step = 3, verifiedIds = emptySet(), boxPartNo = "", boxPart = null, scanMsg = "请先扫料盒(≤14位)") } }
     fun goDone() {
         _state.value = RefillUiState()
+        loadBatches()
     }
 
-    fun clearAll() { _state.value = RefillUiState() }
+    fun clearAll() { _state.value = RefillUiState(); loadBatches() }
     fun clearMsg() { _state.update { it.copy(scanMsg = null) } }
 }
