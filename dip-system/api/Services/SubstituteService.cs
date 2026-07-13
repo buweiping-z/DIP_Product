@@ -142,7 +142,7 @@ public class SubstituteService
         }
         await _db.SaveChangesAsync();
 
-        return GetByIdAsync(order.Id);
+        return await GetByIdAsync(order.Id);
     }
 
     // ===== 编辑订单（仅 status=1 的订单，仅未确认明细可修改）=====
@@ -184,7 +184,7 @@ public class SubstituteService
         }
         await _db.SaveChangesAsync();
 
-        return GetByIdAsync(order.Id);
+        return await GetByIdAsync(order.Id);
     }
 
     // ===== 取消订单 =====

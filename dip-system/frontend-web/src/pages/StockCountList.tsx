@@ -17,8 +17,8 @@ export default function StockCountList() {
 
   const handleDownload = async () => {
     try {
-      const res = await api.get('/stockcount/export/template', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res]));
+      const blob = await api.get('/stockcount/export/template', { responseType: 'blob' }) as any as Blob;
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = 'stock_count_template.xlsx';

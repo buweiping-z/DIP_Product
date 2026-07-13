@@ -1,12 +1,28 @@
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import { showToast } from './toast';
-const api = axios.create({ baseURL: '/api/v1', timeout: 30000 });
-api.interceptors.request.use((config) => {
+
+export interface ApiResponse<T = any> {
+  code: number;
+  data: T;
+  message: string;
+}
+
+type ApiClient = {
+  <T = any>(config: AxiosRequestConfig): Promise<ApiResponse<T>>;
+  <T = any>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>>;
+  get<T = any>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>>;
+  post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>>;
+  put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>>;
+  delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>>;
+};
+
+const instance = axios.create({ baseURL: '/api/v1', timeout: 30000 });
+instance.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
-api.interceptors.response.use(
+instance.interceptors.response.use(
   (res) => {
     const body = res.data;
     // 全局业务错误拦截：非 0 code 且非 200 HTTP 状态显示提示
@@ -35,7 +51,7 @@ api.interceptors.response.use(
             localStorage.setItem('token', d.access_token);
             localStorage.setItem('refreshToken', d.refresh_token);
             error.config.headers.Authorization = `Bearer ${d.access_token}`;
-            return api(error.config);
+            return instance(error.config);
           }
         } catch {}
       }
@@ -44,4 +60,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+const api = instance as unknown as ApiClient;
 export default api;

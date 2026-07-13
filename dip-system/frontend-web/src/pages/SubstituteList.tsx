@@ -84,6 +84,7 @@ export default function SubstituteList() {
   const showDetailFn = async (id: number) => {
     try {
       const res = await api.get(`/substitute/orders/${id}`);
+      if (res.code !== 0) { showToast(res.message || '加载失败', 'error'); return; }
       setDetailData(res.data || {});
       setShowDetail(true);
     } catch {}
@@ -122,10 +123,12 @@ export default function SubstituteList() {
         quantity: r.quantity
       })) };
       if (editId) {
-        await api.put(`/substitute/orders/${editId}`, payload);
+        const res = await api.put(`/substitute/orders/${editId}`, payload);
+        if (res.code !== 0) { setMsg(res.message || '操作失败'); return; }
         showToast('订单更新成功', 'success');
       } else {
-        await api.post('/substitute/orders', payload);
+        const res = await api.post('/substitute/orders', payload);
+        if (res.code !== 0) { setMsg(res.message || '操作失败'); return; }
         showToast('订单创建成功', 'success');
       }
       setShowDialog(false); fetchOrders();
@@ -134,7 +137,7 @@ export default function SubstituteList() {
 
   const handleCancel = async (id: number) => {
     if (!confirm('确认取消此订单？')) return;
-    try { await api.post(`/substitute/orders/${id}/cancel`); showToast('订单已取消', 'success'); fetchOrders(); } catch {}
+    try { const res = await api.post(`/substitute/orders/${id}/cancel`); if (res.code !== 0) { showToast(res.message || '操作失败', 'error'); return; } showToast('订单已取消', 'success'); fetchOrders(); } catch {}
   };
 
   const statusTag = (s: number) => {
