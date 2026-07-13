@@ -29,8 +29,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     fun loadServerUrl() {
         viewModelScope.launch {
             val url = prefs.serverUrl.first()
-            val changed = url.isNotBlank() && url != RetrofitClient.baseUrl
-            if (changed) {
+            if (url.isNotBlank()) {
                 RetrofitClient.baseUrl = url
                 RetrofitClient.reset()
             }
