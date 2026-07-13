@@ -38,24 +38,39 @@ fun HomeScreen(
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // 未完成任务栏
             val hasPending = state.pendingPrep > 0 || state.pendingRefill > 0 || state.pendingSubstitute > 0
+                || state.pendingOnline > 0 || state.pendingOutbound > 0
             if (hasPending) {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3CD))) {
-                    Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        if (state.pendingPrep > 0)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${state.pendingPrep}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                                Text("待备料", fontSize = 11.sp, color = Color.Gray)
-                            }
-                        if (state.pendingRefill > 0)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${state.pendingRefill}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                                Text("补料中", fontSize = 11.sp, color = Color.Gray)
-                            }
-                        if (state.pendingSubstitute > 0)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${state.pendingSubstitute}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                                Text("待移库", fontSize = 11.sp, color = Color.Gray)
-                            }
+                    Column(Modifier.padding(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            if (state.pendingPrep > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingPrep}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("待备料", fontSize = 11.sp, color = Color.Gray)
+                                }
+                            if (state.pendingOnline > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingOnline}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("待上线", fontSize = 11.sp, color = Color.Gray)
+                                }
+                            if (state.pendingOutbound > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingOutbound}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("待出库", fontSize = 11.sp, color = Color.Gray)
+                                }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            if (state.pendingRefill > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingRefill}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("补料中", fontSize = 11.sp, color = Color.Gray)
+                                }
+                            if (state.pendingSubstitute > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingSubstitute}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("待移库", fontSize = 11.sp, color = Color.Gray)
+                                }
+                        }
                     }
                 }
             } else {

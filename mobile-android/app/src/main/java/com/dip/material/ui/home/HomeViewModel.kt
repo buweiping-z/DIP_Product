@@ -15,7 +15,9 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val pendingPrep: Int = 0,
     val pendingRefill: Int = 0,
-    val pendingSubstitute: Int = 0
+    val pendingSubstitute: Int = 0,
+    val pendingOnline: Int = 0,
+    val pendingOutbound: Int = 0
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,8 +48,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { subCount = it.data?.total ?: 0 },
                 onFailure = {}
             )
+            // 待上线
+            var onlineCount = 0
+            repo.getOrders(status = 2).fold(
+                onSuccess = { onlineCount = it.data?.total ?: 0 },
+                onFailure = {}
+            )
+            // 待出库
+            var outboundCount = 0
+            repo.getOutboundOrders(status = 1).fold(
+                onSuccess = { outboundCount = it.data?.total ?: 0 },
+                onFailure = {}
+            )
             _state.update { it.copy(isLoading = false,
-                pendingPrep = prepCount, pendingRefill = refillCount, pendingSubstitute = subCount) }
+                pendingPrep = prepCount, pendingRefill = refillCount, pendingSubstitute = subCount,
+                pendingOnline = onlineCount, pendingOutbound = outboundCount) }
         }
     }
 }
