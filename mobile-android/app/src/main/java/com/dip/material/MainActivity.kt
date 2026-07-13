@@ -20,6 +20,7 @@ import com.dip.material.ui.return_.ReturnScreen
 import com.dip.material.ui.online.OnlineScreen
 import com.dip.material.ui.substitute.SubstituteScreen
 import com.dip.material.ui.outbound.OutboundScreen
+import com.dip.material.data.network.RetrofitClient
 import com.dip.material.utils.PreferencesManager
 import kotlinx.coroutines.launch
 
@@ -50,6 +51,7 @@ fun AppNavHost() {
             onLogout = {
                 scope.launch {
                     prefs.clearTokens()
+                    RetrofitClient.reset()
                     navController.navigate("login") { popUpTo("home") { inclusive = true } }
                 }
             }
