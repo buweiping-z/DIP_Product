@@ -172,8 +172,9 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
                         _state.update { it.copy(isLoading = false,
                             scanMsg = "移库完成！",
                             scanEventId = it.scanEventId + 1, lastScanOk = true) }
-                        // 刷新订单列表
-                        loadOrders()
+                        // 短暂显示"移库完成"后自动退出到订单列表
+                        kotlinx.coroutines.delay(800)
+                        clearSelection()
                     } else {
                         ScanSoundManager.playError()
                         _state.update { it.copy(isLoading = false, scanMsg = res.message ?: "提交失败",
