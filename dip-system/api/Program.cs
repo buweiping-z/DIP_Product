@@ -69,6 +69,7 @@ builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<OutboundService>();
 builder.Services.AddScoped<RefillService>();
+builder.Services.AddScoped<SubstituteService>();
 
 // 5. Controllers + Swagger
 builder.Services.AddControllers(options =>
