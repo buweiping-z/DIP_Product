@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,19 +28,39 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val stats = state.stats
+
+    LaunchedEffect(Unit) { viewModel.loadPendingTasks() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("DIP 物料管理") }, actions = { IconButton(onClick = onLogout) { Icon(Icons.AutoMirrored.Filled.Logout, "退出") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Stats cards
-            if (stats != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatCard("今日上架", "${stats.todayOps?.shelving ?: 0}", Modifier.weight(1f))
-                    StatCard("今日退料", "${stats.todayOps?.returns ?: 0}", Modifier.weight(1f))
-                    StatCard("备料扫描", "${stats.todayOps?.prepScans ?: 0}", Modifier.weight(1f))
+            // 未完成任务栏
+            val hasPending = state.pendingPrep > 0 || state.pendingRefill > 0 || state.pendingSubstitute > 0
+            if (hasPending) {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3CD))) {
+                    Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        if (state.pendingPrep > 0)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${state.pendingPrep}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                Text("待备料", fontSize = 11.sp, color = Color.Gray)
+                            }
+                        if (state.pendingRefill > 0)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${state.pendingRefill}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                Text("补料中", fontSize = 11.sp, color = Color.Gray)
+                            }
+                        if (state.pendingSubstitute > 0)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${state.pendingSubstitute}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                Text("待移库", fontSize = 11.sp, color = Color.Gray)
+                            }
+                    }
+                }
+            } else {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))) {
+                    Text("无未完成任务", modifier = Modifier.padding(12.dp), color = Color(0xFF2E7D32), fontSize = 14.sp)
                 }
             }
 
@@ -62,16 +83,6 @@ fun HomeScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FuncCard("出库", Icons.Default.ExitToApp, Modifier.weight(1f), onClick = onNavigateToOutbound)
             }
-        }
-    }
-}
-
-@Composable
-fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }

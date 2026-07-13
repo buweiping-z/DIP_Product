@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dip.material.ui.components.QrCodeScanner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,10 +28,12 @@ fun LoginScreen(
     var password by remember { mutableStateOf("admin123") }
     var showServerConfig by remember { mutableStateOf(false) }
     var serverUrl by remember { mutableStateOf("") }
+    var showUserScanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.loadServerUrl(); viewModel.loadCredentials() }
     LaunchedEffect(state.serverUrl) { serverUrl = state.serverUrl }
     LaunchedEffect(state.savedUsername) { if (state.savedUsername.isNotBlank()) username = state.savedUsername }
+    LaunchedEffect(state.savedPassword) { if (state.savedPassword.isNotBlank()) password = state.savedPassword }
     LaunchedEffect(state.isLoggedIn) { if (state.isLoggedIn) onLoginSuccess() }
 
     Scaffold(
@@ -46,11 +49,27 @@ fun LoginScreen(
             Text("线边仓管理 PDA", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(40.dp))
 
-            OutlinedTextField(value = username, onValueChange = { username = it },
-                label = { Text("用户名", fontSize = 16.sp) },
-                leadingIcon = { Icon(Icons.Default.Person, null) },
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            // 用户名扫码区域
+            if (showUserScanner) {
+                Box(Modifier.fillMaxWidth().height(200.dp)) {
+                    QrCodeScanner(onBarcodeScanned = { code ->
+                        username = code.trim()
+                        showUserScanner = false
+                    })
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value = username, onValueChange = { username = it },
+                    label = { Text("用户名", fontSize = 16.sp) },
+                    leadingIcon = { Icon(Icons.Default.Person, null) },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
+                    modifier = Modifier.weight(1f), singleLine = true)
+                IconButton(onClick = { showUserScanner = !showUserScanner }) {
+                    Icon(Icons.Default.QrCodeScanner, if (showUserScanner) "关闭扫码" else "扫码",
+                        tint = if (showUserScanner) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Spacer(Modifier.height(12.dp))
 
             OutlinedTextField(value = password, onValueChange = { password = it },

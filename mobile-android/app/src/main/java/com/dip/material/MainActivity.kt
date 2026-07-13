@@ -49,7 +49,7 @@ fun AppNavHost() {
             onNavigateToOutbound = { navController.navigate("outbound") },
             onLogout = {
                 scope.launch {
-                    prefs.clear()
+                    prefs.clearTokens()
                     navController.navigate("login") { popUpTo("home") { inclusive = true } }
                 }
             }

@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val stats: DashboardStats? = null, val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val pendingPrep: Int = 0,
+    val pendingRefill: Int = 0,
+    val pendingSubstitute: Int = 0
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -20,15 +23,31 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
-    init { loadStats() }
+    init { loadPendingTasks() }
 
-    fun loadStats() {
+    fun loadPendingTasks() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
-            repo.getDashboardStats().fold(
-                onSuccess = { res -> _state.update { it.copy(stats = res.data, isLoading = false) } },
-                onFailure = { e -> _state.update { it.copy(isLoading = false) } }
+            // 待备料单
+            var prepCount = 0
+            repo.getPrepOrders(status = 1).fold(
+                onSuccess = { prepCount = it.data?.total ?: 0 },
+                onFailure = {}
             )
+            // 未完成补料批次
+            var refillCount = 0
+            repo.getActiveRefillBatches().fold(
+                onSuccess = { refillCount = it.data?.size ?: 0 },
+                onFailure = {}
+            )
+            // 待确认替代料移库
+            var subCount = 0
+            repo.getSubstituteOrders(status = 1).fold(
+                onSuccess = { subCount = it.data?.total ?: 0 },
+                onFailure = {}
+            )
+            _state.update { it.copy(isLoading = false,
+                pendingPrep = prepCount, pendingRefill = refillCount, pendingSubstitute = subCount) }
         }
     }
 }

@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 data class LoginUiState(
     val username: String = "", val password: String = "",
-    val savedUsername: String = "",
+    val savedUsername: String = "", val savedPassword: String = "",
     val isLoading: Boolean = false, val error: String? = null,
     val isLoggedIn: Boolean = false, val serverUrl: String = ""
 )
@@ -40,6 +40,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     fun loadCredentials() {
         viewModelScope.launch {
             val saved = prefs.token.first()
+            val savedPwd = prefs.savedPassword.first()
+            _state.update { it.copy(savedPassword = savedPwd) }
             if (saved.isNotBlank()) {
                 // Token exists, verify it
                 repo.getCurrentUser().fold(
@@ -59,6 +61,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                         val d = res.data
                         prefs.saveTokens(d.accessToken, d.refreshToken)
                         prefs.saveUsername(username)
+                        prefs.savePassword(password)
                         _state.update { it.copy(isLoggedIn = true, isLoading = false) }
                     } else {
                         _state.update { it.copy(isLoading = false, error = res.message ?: "登录失败") }
