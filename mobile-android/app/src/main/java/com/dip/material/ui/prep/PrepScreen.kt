@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,15 +13,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.ui.components.BarcodeTextField
 import com.dip.material.utils.ScanSoundManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    var inputBarcode by remember { mutableStateOf("") }
-    var showScanner by remember { mutableStateOf(false) }
+    // PDA 扫码输入由 BarcodeTextField 自管理
 
     // 全部完成后不自动关闭，等用户手动退出时再跑完成流程
     LaunchedEffect(state.allDone) {
@@ -39,12 +37,6 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
         }
     }
 
-    // 扫码回调
-    fun onScanned(code: String) {
-        viewModel.scanItem(code.trim())
-        inputBarcode = code.trim()
-    }
-
     Scaffold(
         topBar = { TopAppBar(title = { Text(if (state.selectedOrder != null) "备料扫描" else "备料管理") },
             navigationIcon = { IconButton(onClick = {
@@ -54,30 +46,17 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (state.selectedOrder != null) {
-                // 扫码区域
-                if (showScanner) {
-                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.38f)) {
-                        QrCodeScanner(onBarcodeScanned = { onScanned(it) })
-                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                            Button(onClick = { showScanner = false },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
-                        }
-                    }
-                }
-
-                // 手动输入区
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it },
-                        label = { Text("输入料号(>14位)") }, modifier = Modifier.weight(1f), singleLine = true)
-                    Button(onClick = { if (inputBarcode.isNotBlank()) { viewModel.scanItem(inputBarcode.trim()); inputBarcode = "" } },
-                        enabled = inputBarcode.isNotBlank()) { Text("确认") }
-                    IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, if (showScanner) "关闭" else "扫码") }
-                }
+                // PDA 扫码输入区
+                BarcodeTextField(
+                    onBarcodeScanned = { viewModel.scanItem(it.trim()) },
+                    label = "输入料号(>14位)",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
 
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
                 state.scanMsg?.let { msg ->
-                    val isError = msg.contains("未匹配") || msg.contains("不足") || msg.contains("无效")
+                    val isError = !state.lastScanOk
                     Surface(
                         color = if (isError) Color(0xFFD32F2F) else Color(0xFF388E3C),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
@@ -91,7 +70,7 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                 state.selectedOrder?.let { order ->
                     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         item { Text("备料单: ${order.orderNo} | 产品: ${order.productName}", style = MaterialTheme.typography.titleSmall) }
-                        item { Text("条码须>14位，逐袋扫码确认", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+                        item { Text("条码须>14位，扣动扫码枪扳机逐袋扫描（未配广播可手动输入）", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
                         // 进度计数器：已完成料号数 / 总料号数
                         val totalParts = order.details?.size ?: 0
                         val doneParts = order.details?.count { d ->
@@ -154,11 +133,14 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                     if (state.orders.isEmpty() && !state.isLoading) item { Text("无待备料单") }
                     items(state.orders) { order ->
                         Card(onClick = { viewModel.selectOrder(order.id) }, Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(order.orderNo, style = MaterialTheme.typography.titleMedium)
-                                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
-                                    Text("待备料", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            Column(Modifier.padding(16.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(order.orderNo, style = MaterialTheme.typography.titleMedium)
+                                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
+                                        Text("待备料", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                    }
                                 }
+                                Text("需求总数: ${order.totalRequiredQty.toInt()}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
                         }
                     }

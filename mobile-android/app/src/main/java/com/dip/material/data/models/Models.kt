@@ -68,7 +68,8 @@ data class PrepOrderItem(
     val id: Int, @SerializedName("order_no") val orderNo: String,
     @SerializedName("production_order_id") val productionOrderId: Int,
     @SerializedName("line_id") val lineId: Int, val status: Int,
-    @SerializedName("kit_check_result") val kitCheckResult: Int
+    @SerializedName("kit_check_result") val kitCheckResult: Int,
+    @SerializedName("total_required_qty") val totalRequiredQty: Double = 0.0
 )
 data class PrepDetail(
     val id: Int, @SerializedName("order_no") val orderNo: String,
@@ -172,9 +173,19 @@ data class OnlineConfirmRequest(
 // ===== Outbound =====
 data class OutboundOrderItem(
     val id: Int, @SerializedName("order_no") val orderNo: String,
-    @SerializedName("part_no") val partNo: String, @SerializedName("part_name") val partName: String,
-    @SerializedName("location_code") val locationCode: String, val quantity: Double,
+    @SerializedName("detail_count") val detailCount: Int,
     val status: Int, @SerializedName("created_at") val createdAt: String?
+)
+data class OutboundDetailItem(
+    val id: Int, @SerializedName("order_id") val orderId: Int,
+    @SerializedName("part_id") val partId: Int, @SerializedName("part_no") val partNo: String,
+    @SerializedName("part_name") val partName: String,
+    @SerializedName("location_id") val locationId: Int, @SerializedName("location_code") val locationCode: String,
+    val quantity: Double, val status: Int
+)
+data class OutboundOrderDetail(
+    val id: Int, @SerializedName("order_no") val orderNo: String, val status: Int,
+    val details: List<OutboundDetailItem>
 )
 data class OutboundConfirmRequest(val barcode: String)
 

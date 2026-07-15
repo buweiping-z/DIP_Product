@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,23 +13,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.ui.components.BarcodeTextField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    var inputBarcode by remember { mutableStateOf("") }
-    var showScanner by remember { mutableStateOf(false) }
-
-    // 全部完成后自动关闭扫码窗口
-    LaunchedEffect(state.allDone) {
-        if (state.allDone) {
-            showScanner = false
-            kotlinx.coroutines.delay(1000)
-            viewModel.clearSelection()
-        }
-    }
+    // PDA 扫码输入由 BarcodeTextField 自管理
 
     Scaffold(
         topBar = {
@@ -47,31 +36,24 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (state.selectedOrder != null) {
-                // === 上线扫描界面 ===
-                if (showScanner) {
-                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
-                        QrCodeScanner(onBarcodeScanned = { viewModel.scanOnline(it.trim()) }, isActive = true)
-                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { showScanner = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
-                        }
-                    }
-                }
-
-                // 手动输入 + 扫码切换
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it },
-                        label = { Text("手动输入料号") }, modifier = Modifier.weight(1f), singleLine = true)
-                    Button(onClick = { if (inputBarcode.isNotBlank()) { viewModel.scanOnline(inputBarcode.trim()); inputBarcode = "" } },
-                        enabled = inputBarcode.isNotBlank()) { Text("确认") }
-                    IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, if (showScanner) "关闭" else "扫码") }
-                }
+                // PDA 扫码输入区
+                BarcodeTextField(
+                    onBarcodeScanned = { viewModel.scanOnline(it.trim()) },
+                    label = "输入料号(>14位)",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
 
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-                state.scanMsg?.let {
-                    val isOk = it.contains("成功") || it.contains("完成")
-                    Text(it, color = if (isOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp), fontSize = 14.sp)
+                state.scanMsg?.let { msg ->
+                    val isOk = msg.contains("已确认")
+                    Surface(
+                        color = if (isOk) Color(0xFF388E3C) else Color(0xFFD32F2F),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    ) {
+                        Text(msg, color = Color.White,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp)
+                    }
                 }
 
                 // 订单信息
@@ -80,17 +62,24 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Column(Modifier.padding(12.dp)) {
                             Text("${order.orderNo} | ${order.productName}", style = MaterialTheme.typography.titleSmall)
-                            Text("计划数量: ${order.planQty.toInt()} | 料号: ${state.details.size} 项", style = MaterialTheme.typography.bodySmall)
+                            Text("条码须>14位，扣动扫码枪扳机逐袋扫描（未配广播可手动输入）", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                     }
                 }
 
+                // 进度计数器：已完成料号数 / 总料号数
+                val totalParts = state.details.size
+                val doneParts = state.details.count { (state.scannedCounts[it.id] ?: 0) > 0 }
+                Text("已确认料号: $doneParts / $totalParts",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
+
                 // 料号核对列表
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(state.details) { d ->
-                        val consumed = d.onlineConsumedQty
-                        val required = d.totalRequiredQty
-                        val isDone = consumed >= required
+                        val scannedQty = state.scannedCounts[d.id] ?: 0
+                        val isDone = scannedQty > 0
                         Card(Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isDone) MaterialTheme.colorScheme.primaryContainer
@@ -99,17 +88,19 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
                             Row(Modifier.padding(10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(d.partNo, style = MaterialTheme.typography.titleSmall)
-                                    Text("已上线: ${consumed.toInt()} / ${required.toInt()}", style = MaterialTheme.typography.bodySmall)
+                                    if (isDone) {
+                                        Text("已确认 $scannedQty", style = MaterialTheme.typography.bodySmall, color = Color(0xFF4CAF50))
+                                    }
                                 }
                                 Text(if (isDone) "✓" else "待确认",
-                                    color = if (isDone) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                                    color = if (isDone) Color(0xFF4CAF50) else Color.Gray,
                                     fontSize = 14.sp)
                             }
                         }
                     }
                 }
             } else {
-                // === 订单列表 ===
+                // 订单列表
                 LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("待上线订单", style = MaterialTheme.typography.titleMedium) }
                     if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }

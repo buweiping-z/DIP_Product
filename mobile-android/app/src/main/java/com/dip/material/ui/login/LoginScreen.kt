@@ -1,7 +1,9 @@
 package com.dip.material.ui.login
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -15,7 +17,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.dip.material.ui.components.QrCodeScanner
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
+import com.dip.material.utils.ScanBus
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,19 +34,28 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var showServerConfig by remember { mutableStateOf(false) }
     var serverUrl by remember { mutableStateOf("") }
-    var showUserScanner by remember { mutableStateOf(false) }
+    val usernameFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { viewModel.loadServerUrl(); viewModel.loadCredentials() }
+    LaunchedEffect(Unit) { usernameFocusRequester.requestFocus() }
     LaunchedEffect(state.serverUrl) { serverUrl = state.serverUrl }
     LaunchedEffect(state.savedUsername) { if (state.savedUsername.isNotBlank()) username = state.savedUsername }
     LaunchedEffect(state.savedPassword) { if (state.savedPassword.isNotBlank()) password = state.savedPassword }
     LaunchedEffect(state.isLoggedIn) { if (state.isLoggedIn) onLoginSuccess() }
 
+    // 广播模式：扫码枪扫描工牌条码，自动填入用户名（取代原键盘楔自动填入）
+    LaunchedEffect(Unit) {
+        ScanBus.scans.collect { barcode ->
+            val trimmed = barcode.trim()
+            if (trimmed.isNotBlank()) username = trimmed
+        }
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("DIP 物料管理") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -49,27 +64,15 @@ fun LoginScreen(
             Text("线边仓管理 PDA", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(40.dp))
 
-            // 用户名扫码区域
-            if (showUserScanner) {
-                Box(Modifier.fillMaxWidth().height(200.dp)) {
-                    QrCodeScanner(onBarcodeScanned = { code ->
-                        username = code.trim()
-                        showUserScanner = false
-                    })
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(value = username, onValueChange = { username = it },
-                    label = { Text("用户名", fontSize = 16.sp) },
-                    leadingIcon = { Icon(Icons.Default.Person, null) },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
-                    modifier = Modifier.weight(1f), singleLine = true)
-                IconButton(onClick = { showUserScanner = !showUserScanner }) {
-                    Icon(Icons.Default.QrCodeScanner, if (showUserScanner) "关闭扫码" else "扫码",
-                        tint = if (showUserScanner) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            // 用户名（广播模式：扣扫码枪扫工牌条码自动填入；也可用键盘/手动输入）
+            OutlinedTextField(value = username, onValueChange = { username = it },
+                label = { Text("用户名", fontSize = 16.sp) },
+                supportingText = { Text("扣动扫码枪扫描工牌条码可自动填入") },
+                leadingIcon = { Icon(Icons.Default.Person, null) },
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
+                modifier = Modifier.fillMaxWidth().focusRequester(usernameFocusRequester),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
             Spacer(Modifier.height(12.dp))
 
             OutlinedTextField(value = password, onValueChange = { password = it },

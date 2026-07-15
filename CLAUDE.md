@@ -324,3 +324,68 @@ dotnet publish -c Release --self-contained -r win-x64
 - `ensure-created-missing-tables.md` — EnsureCreated() 不给已有数据库建新表
 - `qrcode-scanner-isactive-not-working.md` — QrCodeScanner isActive 参数未生效
 - `datastore-credential-persistence.md` — DataStore 持久化登录凭据模式
+
+### 2026-07-14 — 相机扫码→PDA键盘输入 + 出库主明细改造 + 退料流程重做 + 发布部署
+
+**相机扫码→PDA键盘输入：**
+- 删除 CameraX + ML Kit，改为 PDA 键盘楔模式
+- 新建 `BarcodeTextField` 组件：自动聚焦 + onKeyEvent 硬按键兜底 + key 强制重建 + view.post 抑键盘
+- 8 个 Screen 全面改造为 PDA 文本输入
+- Manifest 删除 CAMERA 权限，新增 ACCESS_NETWORK_STATE
+
+**出库管理主明细改造：**
+- 数据模型：`outbound_orders`（主表）+ `outbound_details`（明细表），参照替代料移库模式
+- 前端弹窗多行添加，手机端逐种扫码核销
+- 后端新增 `POST /{id}/details/{detailId}/confirm` + `POST /{id}/confirm`
+
+**退料流程重做：**
+- 4 步向导：扫料号找库位 → 扫库位 → 逐件扫退料 → 退料完成
+- 后端新增 `POST /return/batch-finish` 批量提交接口
+- 前端退料记录去掉了退料单号和退料原因列，新增 location_code
+
+**发布部署：**
+- 统一端口 8800，前端 build 产物放入 `api/html/`
+- `dotnet publish --self-contained -r win-x64` 自包含部署包
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 53 | 登录失败报 ACCESS_NETWORK_STATE | WiFi 绑定代码需要此权限但 Manifest 缺失 | 添加权限声明 |
+| 54 | 相同料号连续扫不累加 | PDA Enter 键走原始事件不走 IME，onDone 不触发 | onKeyEvent 兜底 + key(scanKey) 强制重建 |
+| 55 | 扫码后软键盘总是弹出 | requestFocus()→IME show 与 hide 竞态 | window.setSoftInputMode + view.post 延迟隐藏 |
+| 56 | 出库保存报 part_id 无默认值 | EF Core 模型移除列但旧表仍有 NOT NULL | ALTER TABLE 补 DEFAULT 0 |
+| 57 | 提交按钮被挤出屏幕 | LazyColumn fillMaxSize() 占满空间 | 改用 weight(1f) + verticalScroll 兜底 |
+| 58 | 退回库位显示数字 ID | 后端只返回 target_location_id | 查 WarehouseLocations 补 location_code |
+
+**新增避坑经验（memory）：**
+- `efcore-model-change-orphan-notnull.md` — EF Core 模型变更遗留 NOT NULL 列
+- `pda-barcode-raw-keyevent.md` — PDA 扫码 Enter 键不走 IME
+- `compose-keyboard-suppression.md` — Compose TextField 强制抑软键盘
+- `compose-lazylist-weight-layout.md` — LazyColumn fillMaxSize 挤出尾随组件
+
+### 2026-07-15 — 扫码广播模式逻辑修复（键盘楔 → Intent 广播迁移收尾）
+
+> 背景：手机端扫码从 PDA 键盘楔模式改为 SEUIC 广播模式（`ScanBroadcastReceiver` + `ScanBus` + 重写 `BarcodeTextField`，MainActivity 注册接收器并下发 `service_settings` 配置广播）。本次修复迁移后的扫描逻辑问题。
+
+**BarcodeTextField 组件（广播版）改造：**
+- 接收框显示**解析后料号**（全局规则：≤14位取全部，>14位去末尾4位），回调仍传原始条码——长度判断留在各 ViewModel（料盒/库位是短码，组件层不能拦截）
+- 新增 `clearKey: Any? = null` 参数，变化时清空接收框和手动输入框；上架/补料/退料三个步骤向导界面传 `clearKey = state.step`，切步骤自动清空
+- 扫码收集协程改用 `rememberUpdatedState` 持有回调，消除长驻 `LaunchedEffect` 捕获过期闭包的隐患
+
+**消息颜色判断根治（不再猜关键词）：**
+- `RefillUiState` 新增 `msgOk: Boolean` 字段，全部 19 处 `scanMsg` 赋值点逐一标注成败
+- 补料/备料/替代三个界面（原排除法关键词判断，NG 会漏成绿色）改用显式标志；退料/上线/出库/上架为白名单式（默认红色）本就安全，保持不动
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 59 | 补料核对不扫料盒直接扫>14位部品也处理OK | scanVerify 留了"无料盒直接匹配"兜底分支，绕过料盒验证 | 删除兜底分支，无料盒时报"无效扫描：请先扫料盒(≤14位)" |
+| 60 | 接收文本框处理后不清空、显示原始条码 | 广播版 BarcodeTextField 的 lastCode 只赋值从不清空 | 显示解析后料号 + clearKey=state.step 切步骤清空 |
+| 61 | 补料扫描比对 NG 显示绿色背景 | 界面关键词排除法判断颜色，"该料号未勾选"/e.message 等不含关键词漏成绿色 | VM 显式携带 msgOk/lastScanOk 标志，界面不再猜文本 |
+
+**新增避坑经验（memory）：**
+- `scan-msg-color-explicit-flag.md` — 消息颜色用显式标志不用关键词匹配
+- `broadcast-scan-textfield-pattern.md` — 广播模式扫码组件模式
+- `wizard-no-fallback-bypass.md` — 步骤向导校验不留兜底分支

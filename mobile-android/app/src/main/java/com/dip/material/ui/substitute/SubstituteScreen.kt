@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,14 +13,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.ui.components.BarcodeTextField
 import com.dip.material.utils.ScanSoundManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    var showScanner by remember { mutableStateOf(false) }
+    // PDA 扫码输入由 BarcodeTextField 自管理
 
     // 扫码结果音效
     LaunchedEffect(state.scanEventId) {
@@ -49,33 +48,18 @@ fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewMo
                 // ===== 扫码确认界面 =====
                 val order = state.selectedOrder!!
 
-                // 相机预览
-                if (showScanner) {
-                    Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
-                        QrCodeScanner(onBarcodeScanned = { viewModel.scanBarcode(it.trim()) })
-                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                            Button(onClick = { showScanner = false },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
-                        }
-                    }
-                }
-
-                // 扫码按钮
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center) {
-                    Button(onClick = { showScanner = !showScanner },
-                        modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (showScanner) "关闭扫码" else "扫码替代部品", fontSize = 16.sp)
-                    }
-                }
+                // PDA 扫码输入区
+                BarcodeTextField(
+                    onBarcodeScanned = { viewModel.scanBarcode(it.trim()) },
+                    label = "扫替代料/缺料条码",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
 
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
                 // 消息
                 state.scanMsg?.let { msg ->
-                    val isError = msg.contains("无匹配") || msg.contains("失败") || msg.contains("无效")
+                    val isError = !state.lastScanOk
                     Surface(
                         color = if (isError) Color(0xFFD32F2F) else Color(0xFF388E3C),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)

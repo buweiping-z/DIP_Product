@@ -84,6 +84,9 @@ interface ApiService {
     @POST("api/v1/return/scan")
     suspend fun scanReturn(@Body request: ReturnScanRequest): ApiResponse<PrepScanResult>
 
+    @POST("api/v1/return/batch-finish")
+    suspend fun batchFinishReturn(@Body request: Map<String, @JvmSuppressWildcards Any?>): ApiResponse<Map<String, Any?>>
+
     @GET("api/v1/return")
     suspend fun getReturnList(@Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50): ApiResponse<PageResult<ReturnOrderItem>>
 
@@ -100,8 +103,17 @@ interface ApiService {
         @Query("status") status: Int? = null, @Query("page") page: Int = 1, @Query("page_size") pageSize: Int = 50
     ): ApiResponse<PageResult<OutboundOrderItem>>
 
+    @GET("api/v1/outbound/{id}")
+    suspend fun getOutboundOrderDetail(@Path("id") orderId: Int): ApiResponse<OutboundOrderDetail>
+
+    @POST("api/v1/outbound/{id}/details/{detailId}/confirm")
+    suspend fun confirmOutboundDetail(
+        @Path("id") orderId: Int, @Path("detailId") detailId: Int,
+        @Body request: OutboundConfirmRequest
+    ): ApiResponse<Map<String, Any?>>
+
     @POST("api/v1/outbound/{id}/confirm")
-    suspend fun confirmOutbound(@Path("id") orderId: Int, @Body request: OutboundConfirmRequest): ApiResponse<Map<String, Any?>>
+    suspend fun confirmOutboundAll(@Path("id") orderId: Int): ApiResponse<Map<String, Any?>>
 
     // ===== Online =====
     @POST("api/v1/online/confirm")

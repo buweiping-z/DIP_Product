@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,23 +13,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.ui.components.BarcodeTextField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val batches by viewModel.activeBatches.collectAsState()
-    var inputBarcode by remember { mutableStateOf("") }
-    var showScanner by remember { mutableStateOf(false) }
+    // PDA 扫码输入由 BarcodeTextField 自管理
 
     LaunchedEffect(Unit) { viewModel.loadBatches() }
-
-    // 回到主页(step=0)时自动关闭扫码窗口
-    LaunchedEffect(state.step) { if (state.step == 0) showScanner = false }
-
-    // 退出时关闭扫码窗口
-    DisposableEffect(Unit) { onDispose { showScanner = false } }
 
     val title = when (state.step) {
         0 -> "补料管理"
@@ -50,35 +42,26 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // 扫码区
-            if (state.step >= 1 && showScanner) {
-                Box(Modifier.fillMaxWidth().fillMaxHeight(0.35f)) {
-                    QrCodeScanner(onBarcodeScanned = {
-                        when (state.step) {
-                            1 -> viewModel.togglePart(it.trim())
-                            2 -> viewModel.scanPick(it.trim())
-                            3 -> viewModel.scanVerify(it.trim())
-                        }
-                    }, isActive = true)
-                    Row(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                        Button(onClick = { showScanner = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") }
-                    }
-                }
-            }
-
-            // 手动输入行
+            // PDA 扫码输入区
             if (state.step >= 1) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val hint = when (state.step) { 1 -> "扫部品条码(>14位)"; 2 -> "扫部品条码(>14位)"; 3 -> if (state.boxPartNo.isEmpty()) "扫料盒(≤14位)" else "扫部品(>14位且含料盒号)"; else -> "" }
-                    OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it }, label = { Text(hint) }, modifier = Modifier.weight(1f, fill = true), singleLine = true)
-                    Button(onClick = {
-                        if (inputBarcode.isNotBlank()) {
-                            when (state.step) { 1 -> viewModel.togglePart(inputBarcode.trim()); 2 -> viewModel.scanPick(inputBarcode.trim()); 3 -> viewModel.scanVerify(inputBarcode.trim()) }
-                            inputBarcode = ""
-                        }
-                    }, enabled = inputBarcode.isNotBlank()) { Text("确认") }
-                    IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, if (showScanner) "关闭" else "扫码") }
+                val hint = when (state.step) {
+                    1 -> "扫部品条码(>14位)"
+                    2 -> "扫部品条码(>14位)"
+                    3 -> if (state.boxPartNo.isEmpty()) "扫料盒(≤14位)" else "扫部品(>14位且含料盒号)"
+                    else -> ""
                 }
+                BarcodeTextField(
+                    onBarcodeScanned = { barcode ->
+                        when (state.step) {
+                            1 -> viewModel.togglePart(barcode.trim())
+                            2 -> viewModel.scanPick(barcode.trim())
+                            3 -> viewModel.scanVerify(barcode.trim())
+                        }
+                    },
+                    label = hint,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    clearKey = state.step
+                )
             }
 
             // 核对时显示当前料盒信息
@@ -93,7 +76,7 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
 
             if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.scanMsg?.let { msg ->
-                val ok = !msg.contains("不匹配") && !msg.contains("失败") && !msg.contains("未找到") && !msg.contains("未匹配") && !msg.contains("无效")
+                val ok = state.msgOk
                 Surface(color = if (ok) Color(0xFF388E3C) else Color(0xFFD32F2F), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Text(msg, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp)
                 }
@@ -102,12 +85,6 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
             when (state.step) {
                 0 -> {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        if (showScanner) {
-                            Box(Modifier.fillMaxWidth().fillMaxHeight(0.4f)) {
-                                QrCodeScanner(onBarcodeScanned = { viewModel.scanProduct(it.trim()) }, isActive = true)
-                                Row(Modifier.align(Alignment.TopEnd).padding(8.dp)) { Button(onClick = { showScanner = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("关闭扫码") } }
-                            }
-                        }
                         if (batches.isNotEmpty()) {
                             Card(Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3CD))) {
                                 Column(Modifier.padding(12.dp)) {
@@ -125,10 +102,11 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                         }
                         Text("补料管理", style = MaterialTheme.typography.headlineMedium); Spacer(Modifier.height(16.dp))
                         Text("扫描或输入产品名称", style = MaterialTheme.typography.bodyLarge, color = Color.Gray); Spacer(Modifier.height(16.dp))
-                        OutlinedTextField(value = inputBarcode, onValueChange = { inputBarcode = it }, label = { Text("产品名称/条码") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { if (inputBarcode.isNotBlank()) { viewModel.scanProduct(inputBarcode.trim()); inputBarcode = "" } }, enabled = inputBarcode.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("查询") }
-                        IconButton(onClick = { showScanner = !showScanner }) { Icon(Icons.Default.QrCodeScanner, "扫码", modifier = Modifier.size(36.dp)) }
+                        BarcodeTextField(
+                            onBarcodeScanned = { viewModel.scanProduct(it.trim()) },
+                            label = "产品名称/条码",
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
                 1 -> {

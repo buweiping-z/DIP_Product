@@ -9,3 +9,10 @@ dist/
 .DS_Store
 *.log
 
+
+# build outputs
+mobile-android/app/build/
+publish/
+*.tsbuildinfo
+mobile-android/.gradle/
+dip-system/api/html/

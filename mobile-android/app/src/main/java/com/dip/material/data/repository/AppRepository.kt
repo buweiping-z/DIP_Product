@@ -55,6 +55,8 @@ class AppRepository(val context: Context) {
     // Return
     suspend fun scanReturn(barcode: String, locationId: Int) =
         call { api.scanReturn(ReturnScanRequest(barcode, locationId)) }
+    suspend fun batchFinishReturn(targetLocationId: Int, items: List<Map<String, Any?>>) =
+        call { api.batchFinishReturn(mapOf("target_location_id" to targetLocationId, "items" to items)) }
     suspend fun getReturnList() = call { api.getReturnList() }
 
     // Orders
@@ -63,8 +65,10 @@ class AppRepository(val context: Context) {
 
     // Outbound
     suspend fun getOutboundOrders(status: Int? = null) = call { api.getOutboundOrders(status = status) }
-    suspend fun confirmOutbound(orderId: Int, barcode: String) =
-        call { api.confirmOutbound(orderId, OutboundConfirmRequest(barcode)) }
+    suspend fun getOutboundOrderDetail(orderId: Int) = call { api.getOutboundOrderDetail(orderId) }
+    suspend fun confirmOutboundDetail(orderId: Int, detailId: Int, barcode: String) =
+        call { api.confirmOutboundDetail(orderId, detailId, OutboundConfirmRequest(barcode)) }
+    suspend fun confirmOutboundAll(orderId: Int) = call { api.confirmOutboundAll(orderId) }
 
     // Online
     suspend fun confirmOnline(detailId: Long, barcode: String, quantity: Double = 1.0) =
