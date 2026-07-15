@@ -26,7 +26,8 @@ public class PrepService
         if (status.HasValue) query = query.Where(p => p.Status == status.Value);
         if (lineId.HasValue) query = query.Where(p => p.LineId == lineId.Value);
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(p => p.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+        var items = await query.OrderByDescending(p => p.Id).Skip((page - 1) * pageSize).Take(pageSize)
+            .Include(p => p.Details).ToListAsync();
         return new { total, page, page_size = pageSize, items = items.Select(ToDict) };
     }
 
@@ -159,38 +160,48 @@ public class PrepService
         if (detail == null)
         {
             // 大小写不敏感 + 空格容错：条码包含料号即匹配
-            var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId && d.Status != 2).ToListAsync();
+            var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId).ToListAsync();
             detail = details.FirstOrDefault(d =>
                 string.Equals(d.PartNo.Trim(), barcode, StringComparison.OrdinalIgnoreCase) ||
                 barcode.Contains(d.PartNo.Trim(), StringComparison.OrdinalIgnoreCase));
         }
         if (detail == null) return new { matched = false, message = "未匹配到备料明细" };
 
-        if (detail.Status == 2) return new { matched = false, message = "该物料已备齐" };
         if (detail.Status == 3) return new { matched = false, message = "该物料库存不足，请先上架补货" };
 
-        // 库存已在订单创建时冻结，此处仅核实条码
-        detail.Status = 2;
+        // 扫描阶段只核对，手机端自行计数
         await _db.SaveChangesAsync();
 
-        var remainingDetails = await _db.PrepDetails.CountAsync(d => d.PrepOrderId == prepId && d.Status != 2);
-        if (remainingDetails == 0)
+        return new { matched = true, prep_detail_id = detail.Id, part_no = detail.PartNo };
+    }
+
+    /// <summary>手动退出时跑数据处理：手机端传来已扫明细ID列表</summary>
+    public async Task FinishPrepAsync(long prepId, List<long> detailIds, long operatorId)
+    {
+        var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == prepId);
+        if (prep == null) throw AppException.Business("备料单不存在");
+
+        var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId).ToListAsync();
+        // 已扫过的标记为完成
+        foreach (var d in details)
+        {
+            if (detailIds.Contains(d.Id) && d.Status == 1) d.Status = 2;
+        }
+        // 全部完成 → 备料单完成 + 订单状态 → 待上线
+        if (details.All(d => d.Status == 2))
         {
             prep.Status = 2;
             prep.KitCheckResult = 1;
             prep.CompletedAt = DateTime.UtcNow;
 
-            // 订单状态 → 待上线
             var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == prep.ProductionOrderId);
             if (order != null && order.Status == 1)
             {
                 order.Status = 2;
                 order.UpdatedAt = DateTime.UtcNow;
             }
-            await _db.SaveChangesAsync();
         }
-
-        return new { matched = true, part_no = detail.PartNo, actual_qty = detail.ActualQty, required_qty = detail.RequiredQty, status = detail.Status, all_done = remainingDetails == 0 };
+        await _db.SaveChangesAsync();
     }
 
     public async Task<object> GetRefillsAsync(string? partNo = null, string? locationCode = null,
@@ -323,7 +334,8 @@ public class PrepService
     {
         p.Id, order_no = p.OrderNo, production_order_id = p.ProductionOrderId,
         line_id = p.LineId, status = p.Status, kit_check_result = p.KitCheckResult,
-        completed_at = p.CompletedAt, created_at = p.CreatedAt
+        completed_at = p.CompletedAt, created_at = p.CreatedAt,
+        total_required_qty = p.Details.Sum(d => d.RequiredQty)
     };
 
     private static object DetailToDict(PrepDetail d) => new

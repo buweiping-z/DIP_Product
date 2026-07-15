@@ -134,9 +134,51 @@ public class ReturnService
         return new { total, page, page_size = pageSize, items = items.Select(o => ToDict(o)) };
     }
 
+    /// <summary>
+    /// 手机端扫码退料完成 — 一个退料单 + 多种物料明细
+    /// </summary>
+    public async Task<object> BatchFinishAsync(long targetLocationId, List<ReturnItemInput> items, long operatorId)
+    {
+        if (items == null || items.Count == 0) throw AppException.Business("至少需要一种退料物料");
+
+        var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == targetLocationId);
+        if (loc == null) throw AppException.NotFound($"库位 {targetLocationId} 不存在");
+
+        var orderNo = $"RT{DateTime.UtcNow:yyyyMMddHHmmss}{new Random().Next(1000, 9999)}";
+        var order = new ReturnOrder { OrderNo = orderNo, ReturnReason = "扫码退料", Status = 1 };
+        _db.ReturnOrders.Add(order);
+        await _db.SaveChangesAsync();
+
+        var invSvc = new InventoryService(_db);
+        foreach (var item in items)
+        {
+            var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == item.PartId);
+            if (part == null) throw AppException.NotFound($"物料 {item.PartId} 不存在");
+
+            _db.ReturnOrderItems.Add(new ReturnOrderItem
+            {
+                ReturnOrderId = order.Id, PartId = part.Id, PartNo = part.PartNo,
+                BatchNo = "", Quantity = item.Quantity, TargetLocationId = targetLocationId
+            });
+            await invSvc.AddCoreAsync(part.Id, targetLocationId, item.Quantity, "", operatorId, "Return", order.Id);
+        }
+        await _db.SaveChangesAsync();
+
+        return ToDict(order);
+    }
+
+    public class ReturnItemInput
+    {
+        public long PartId { get; set; }
+        public string PartNo { get; set; } = "";
+        public decimal Quantity { get; set; }
+    }
+
     private object ToDict(ReturnOrder order)
     {
         var items = _db.ReturnOrderItems.Where(i => i.ReturnOrderId == order.Id).ToList();
+        var locIds = items.Select(i => i.TargetLocationId).Distinct().ToList();
+        var locs = _db.WarehouseLocations.Where(l => locIds.Contains(l.Id)).ToList();
         return new
         {
             order.Id, order_no = order.OrderNo, prep_order_id = order.PrepOrderId,
@@ -144,7 +186,8 @@ public class ReturnService
             items = items.Select(i => (object)new
             {
                 i.Id, part_id = i.PartId, part_no = i.PartNo,
-                quantity = i.Quantity, target_location_id = i.TargetLocationId
+                quantity = i.Quantity, target_location_id = i.TargetLocationId,
+                location_code = locs.FirstOrDefault(l => l.Id == i.TargetLocationId)?.LocationCode ?? ""
             })
         };
     }

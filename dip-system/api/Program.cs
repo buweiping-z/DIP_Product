@@ -93,121 +93,6 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
-    // 新增表兼容：EnsureCreated 只在数据库不存在时建表，已存在则需手动补建
-    try
-    {
-        var conn = db.Database.GetDbConnection();
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            CREATE TABLE IF NOT EXISTS refill_records (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                tenant_id BIGINT NOT NULL DEFAULT 0,
-                is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NULL,
-                created_by BIGINT NULL,
-                updated_by BIGINT NULL,
-                prep_order_id BIGINT NOT NULL,
-                prep_detail_id BIGINT NOT NULL,
-                part_id BIGINT NOT NULL DEFAULT 0,
-                part_no VARCHAR(200) NOT NULL,
-                part_name VARCHAR(200) NOT NULL DEFAULT '',
-                location_code VARCHAR(100) NOT NULL DEFAULT '',
-                barcode VARCHAR(200) NOT NULL DEFAULT '',
-                step INT NOT NULL DEFAULT 1,
-                operator_id BIGINT NOT NULL DEFAULT 0,
-                picked_at DATETIME NULL,
-                verified_at DATETIME NULL
-            )";
-        try { cmd.ExecuteNonQuery(); } catch { }
-
-        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'outbound_orders'";
-        var exists = (long)cmd.ExecuteScalar()! > 0;
-        if (!exists)
-        {
-            cmd.CommandText = @"
-                CREATE TABLE outbound_orders (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL DEFAULT 0,
-                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME NULL,
-                    created_by BIGINT NULL,
-                    updated_by BIGINT NULL,
-                    order_no VARCHAR(100) NOT NULL,
-                    part_id BIGINT NOT NULL,
-                    part_no VARCHAR(200) NOT NULL,
-                    part_name VARCHAR(200) NOT NULL,
-                    location_id BIGINT NOT NULL,
-                    location_code VARCHAR(100) NOT NULL,
-                    quantity DECIMAL(18,4) NOT NULL DEFAULT 0,
-                    status INT NOT NULL DEFAULT 1,
-                    operator_id BIGINT NOT NULL DEFAULT 0,
-                    completed_at DATETIME NULL,
-                    UNIQUE INDEX uq_outbound_orders_no (order_no)
-                )";
-            cmd.ExecuteNonQuery();
-        }
-        // 补建替代料移库订单表
-        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'substitute_orders'";
-        var subOrderExists = (long)cmd.ExecuteScalar()! > 0;
-        if (!subOrderExists)
-        {
-            cmd.CommandText = @"
-                CREATE TABLE substitute_orders (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL DEFAULT 0,
-                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME NULL,
-                    created_by BIGINT NULL,
-                    updated_by BIGINT NULL,
-                    order_no VARCHAR(50) NOT NULL,
-                    status INT NOT NULL DEFAULT 1,
-                    operator_id BIGINT NOT NULL DEFAULT 0,
-                    UNIQUE INDEX uq_substitute_orders_no (order_no)
-                )";
-            cmd.ExecuteNonQuery();
-        }
-        cmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'substitute_details'";
-        var subDetailExists = (long)cmd.ExecuteScalar()! > 0;
-        if (!subDetailExists)
-        {
-            cmd.CommandText = @"
-                CREATE TABLE substitute_details (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL DEFAULT 0,
-                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME NULL,
-                    created_by BIGINT NULL,
-                    updated_by BIGINT NULL,
-                    order_id BIGINT NOT NULL,
-                    original_part_id BIGINT NOT NULL,
-                    original_part_no VARCHAR(200) NOT NULL,
-                    substitute_part_id BIGINT NOT NULL,
-                    substitute_part_no VARCHAR(200) NOT NULL,
-                    source_location_id BIGINT NOT NULL,
-                    source_location_code VARCHAR(100) NOT NULL,
-                    target_location_id BIGINT NOT NULL,
-                    target_location_code VARCHAR(100) NOT NULL,
-                    quantity DECIMAL(18,4) NOT NULL DEFAULT 0,
-                    status INT NOT NULL DEFAULT 1
-                )";
-            cmd.ExecuteNonQuery();
-        }
-
-        // 补 batch_no 字段（旧表可能没有）
-        try
-        {
-            cmd.CommandText = "ALTER TABLE refill_records ADD COLUMN batch_no VARCHAR(50) NOT NULL DEFAULT ''";
-            cmd.ExecuteNonQuery();
-        }
-        catch { }
-    }
-    catch { }
-
     // 种子角色（幂等 — 已存在则跳过）
     if (!db.Roles.Any(r => r.RoleCode == "admin"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
@@ -300,10 +185,15 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
 
-// 静态文件
+// 静态文件（前端 build 产物）
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// API 路由
+app.MapControllers();
+
+// SPA fallback: 非 API 非静态文件的请求 → index.html
+app.MapFallbackToFile("index.html");
 
 app.Run();

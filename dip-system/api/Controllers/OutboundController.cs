@@ -15,6 +15,8 @@ public class OutboundController : ControllerBase
 
     public OutboundController(OutboundService svc) { _svc = svc; }
 
+    private long GetUserId() => long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
     [HttpGet]
     public async Task<IActionResult> GetList(
         [FromQuery] int? status, [FromQuery] string? part_no, [FromQuery] string? location_code,
@@ -22,24 +24,21 @@ public class OutboundController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int page_size = 20)
         => Ok(ApiResponse.Ok(await _svc.GetListAsync(status, part_no, location_code, start_date, end_date, page, page_size)));
 
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(long id)
+        => Ok(ApiResponse.Ok(await _svc.GetByIdAsync(id)));
+
     [HttpGet("available-parts")]
     public async Task<IActionResult> GetAvailableParts()
         => Ok(ApiResponse.Ok(await _svc.GetAvailablePartsAsync()));
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] OutboundCreateRequest req)
-    {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        return Ok(ApiResponse.Ok(await _svc.CreateAsync(
-            req.PartId, req.PartNo, req.PartName, req.LocationId, req.LocationCode, req.Quantity, userId), "出库单创建成功"));
-    }
+        => Ok(ApiResponse.Ok(await _svc.CreateAsync(req.Details, GetUserId()), "出库单创建成功"));
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(long id, [FromBody] OutboundCreateRequest req)
-    {
-        return Ok(ApiResponse.Ok(await _svc.UpdateAsync(
-            id, req.PartId, req.PartNo, req.PartName, req.LocationId, req.LocationCode, req.Quantity), "更新成功"));
-    }
+        => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.Details), "更新成功"));
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(long id)
@@ -48,22 +47,20 @@ public class OutboundController : ControllerBase
         return Ok(ApiResponse.Ok(null, "删除成功"));
     }
 
+    [HttpPost("{id}/details/{detailId}/confirm")]
+    public async Task<IActionResult> ConfirmDetail(long id, long detailId, [FromBody] OutboundConfirmRequest req)
+        => Ok(ApiResponse.Ok(await _svc.ConfirmDetailAsync(id, detailId, req.Barcode, GetUserId()), "核销成功"));
+
     [HttpPost("{id}/confirm")]
-    public async Task<IActionResult> Confirm(long id, [FromBody] OutboundConfirmRequest req)
-    {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        return Ok(ApiResponse.Ok(await _svc.ConfirmAsync(id, req.Barcode, userId), "出库核销成功"));
-    }
+    public async Task<IActionResult> ConfirmAll(long id)
+        => Ok(ApiResponse.Ok(await _svc.ConfirmAllAsync(id), "出库整单完成"));
 }
+
+// ===== DTOs =====
 
 public class OutboundCreateRequest
 {
-    public long PartId { get; set; }
-    public string PartNo { get; set; } = "";
-    public string PartName { get; set; } = "";
-    public long LocationId { get; set; }
-    public string LocationCode { get; set; } = "";
-    public decimal Quantity { get; set; }
+    public List<OutboundService.OutboundDetailInput> Details { get; set; } = new();
 }
 
 public class OutboundConfirmRequest

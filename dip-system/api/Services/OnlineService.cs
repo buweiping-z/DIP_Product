@@ -21,15 +21,6 @@ public class OnlineService
         var prep = await _db.PrepOrders.FirstOrDefaultAsync(p => p.Id == detail.PrepOrderId);
         if (prep == null || prep.Status != 2) throw AppException.Business("备料单未完成");
 
-        // 直接从冻结库存扣减（兼容新旧流程，不依赖 PrepScanRecords）
-        var frozenInvs = await _db.Inventories
-            .Where(i => i.PartId == detail.PartId && i.FrozenQty > 0).ToListAsync();
-        var totalFrozen = frozenInvs.Sum(i => (decimal?)i.FrozenQty) ?? 0m;
-        if (totalFrozen < reqQty) throw AppException.Business("冻结库存不足");
-
-        var firstInv = frozenInvs.First();
-        var firstLoc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == firstInv.LocationId);
-
         string stationNo = "";
         if (stationId.HasValue)
         {
@@ -37,49 +28,58 @@ public class OnlineService
             if (st != null) stationNo = st.StationNo;
         }
 
+        // 仅记录上线确认（审计追溯），不在此处扣库存
         var confirm = new OnlineConfirm
         {
             PrepOrderId = detail.PrepOrderId, PrepDetailId = detailId,
             PartId = detail.PartId, PartNo = detail.PartNo, BatchNo = "",
             LoadedQty = reqQty, StationId = stationId, StationNo = stationNo,
-            SourceLocationId = firstInv.LocationId, Barcode = barcode,
-            EquipmentId = equipmentId, OperatorId = operatorId, Status = 1
+            Barcode = barcode, EquipmentId = equipmentId, OperatorId = operatorId, Status = 1
         };
         _db.OnlineConfirms.Add(confirm);
         await _db.SaveChangesAsync();
 
-        var invSvc = new InventoryService(_db);
-        var remaining = reqQty;
-        foreach (var inv in frozenInvs)
-        {
-            if (remaining <= 0) break;
-            var deduct = Math.Min(remaining, inv.FrozenQty);
-            await invSvc.DeductCoreAsync(detail.PartId, inv.LocationId, deduct, operatorId, "OnlineOut", confirm.Id);
-            remaining -= deduct;
-        }
-        await _db.SaveChangesAsync();
-
-        // 检查订单所有备料明细是否已全部上线消耗完毕 → 订单完成
+        // 检查订单是否全部确认完毕 → 订单完成时一次性将冻结库存转为实际扣减
         var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == prep.ProductionOrderId);
         if (order != null && order.Status == 2)
         {
             var allPrepIds = await _db.PrepOrders
                 .Where(p => p.ProductionOrderId == order.Id && p.Status == 2)
                 .Select(p => p.Id).ToListAsync();
-            var allDetailIds = await _db.PrepDetails
-                .Where(d => allPrepIds.Contains(d.PrepOrderId))
-                .Select(d => d.Id).ToListAsync();
-            var totalRequired = await _db.PrepDetails
-                .Where(d => allPrepIds.Contains(d.PrepOrderId))
-                .SumAsync(d => d.RequiredQty);
-            var totalConsumed = await _db.OnlineConfirms
+            var allDetails = await _db.PrepDetails
+                .Where(d => allPrepIds.Contains(d.PrepOrderId)).ToListAsync();
+            var allDetailIds = allDetails.Select(d => d.Id).ToList();
+            // 上线只防错不管理数量：所有明细都被确认过至少一次 → 订单完成
+            var confirmedCount = await _db.OnlineConfirms
                 .Where(c => allDetailIds.Contains(c.PrepDetailId))
-                .SumAsync(c => c.LoadedQty);
-            if (totalConsumed >= totalRequired)
+                .Select(c => c.PrepDetailId).Distinct()
+                .CountAsync();
+
+            Console.WriteLine($"[Online] 订单 {order.OrderNo}: 已确认明细={confirmedCount}/{allDetails.Count}");
+            if (confirmedCount >= allDetails.Count)
             {
+                Console.WriteLine($"[Online] 订单 {order.OrderNo} → 已完成，开始扣减冻结库存");
+                // 订单完成 → 将所有冻结库存一次性扣减（FrozenQty → 0，TotalQty 同步减少）
+                var invSvc = new InventoryService(_db);
+                var partIds = allDetails.Select(d => d.PartId).Distinct().ToList();
+                foreach (var partId in partIds)
+                {
+                    var frozenInvs = await _db.Inventories
+                        .Where(i => i.PartId == partId && i.FrozenQty > 0).ToListAsync();
+                    foreach (var inv in frozenInvs)
+                    {
+                        await invSvc.DeductCoreAsync(partId, inv.LocationId, inv.FrozenQty,
+                            operatorId, "OnlineComplete", order.Id);
+                    }
+                }
+
                 order.Status = 3;
                 order.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
+            }
+            else
+            {
+                Console.WriteLine($"[Online] 订单 {order.OrderNo} 尚未完成（差 {allDetails.Count - confirmedCount} 个明细）");
             }
         }
 

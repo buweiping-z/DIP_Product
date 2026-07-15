@@ -70,6 +70,7 @@ public class AppDbContext : DbContext
 
     // ===== 出库 =====
     public DbSet<OutboundOrder> OutboundOrders { get; set; }
+    public DbSet<OutboundDetail> OutboundDetails { get; set; }
 
     // ===== 补料 =====
     public DbSet<RefillRecord> RefillRecords { get; set; }
@@ -111,6 +112,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockCountItem>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OrderClosure>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OutboundOrder>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<OutboundDetail>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<RefillRecord>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<SubstituteOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<SubstituteDetail>().HasQueryFilter(e => !e.IsDeleted);
@@ -150,6 +152,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SystemLog>(e => e.ToTable("system_logs"));
         modelBuilder.Entity<OrderClosure>(e => e.ToTable("order_closures"));
         modelBuilder.Entity<OutboundOrder>(e => e.ToTable("outbound_orders"));
+        modelBuilder.Entity<OutboundDetail>(e => e.ToTable("outbound_details"));
         modelBuilder.Entity<RefillRecord>(e => e.ToTable("refill_records"));
         modelBuilder.Entity<SubstituteOrder>(e => e.ToTable("substitute_orders"));
         modelBuilder.Entity<SubstituteDetail>(e => e.ToTable("substitute_details"));
@@ -216,6 +219,12 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<SubstituteDetail>()
+            .HasOne(e => e.Order)
+            .WithMany(o => o.Details)
+            .HasForeignKey(e => e.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<OutboundDetail>()
             .HasOne(e => e.Order)
             .WithMany(o => o.Details)
             .HasForeignKey(e => e.OrderId)

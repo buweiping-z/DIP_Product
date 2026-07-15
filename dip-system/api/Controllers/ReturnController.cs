@@ -39,6 +39,19 @@ public class ReturnController : ControllerBase {
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(long id, [FromBody] Dictionary<string, object?> data)
         => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, data), "退料单已更新"));
+
+    [HttpPost("batch-finish")]
+    public async Task<IActionResult> BatchFinish([FromBody] BatchFinishRequest req)
+    {
+        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(ApiResponse.Ok(await _svc.BatchFinishAsync(req.TargetLocationId, req.Items, userId), "退料完成"));
+    }
+}
+
+public class BatchFinishRequest
+{
+    public long TargetLocationId { get; set; }
+    public List<ReturnService.ReturnItemInput> Items { get; set; } = new();
 }
 
 

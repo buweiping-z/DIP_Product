@@ -8,6 +8,7 @@ import PartList from './pages/PartList';
 import LocationList from './pages/LocationList';
 import PrepList from './pages/PrepList';
 import ShelvingList from './pages/LoadingList';
+import OutboundList from './pages/OutboundList';
 import ReturnList from './pages/ReturnList';
 import SubstituteList from './pages/SubstituteList';
 import StockCountList from './pages/StockCountList';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="online" element={<OnlineList />} />
         <Route path="return" element={<ReturnList />} />
         <Route path="substitute" element={<SubstituteList />} />
+        <Route path="outbound" element={<OutboundList />} />
         <Route path="stockcount" element={<StockCountList />} />
         <Route path="abnormal" element={<AbnormalList />} />
         <Route path="users" element={<UserList />} />

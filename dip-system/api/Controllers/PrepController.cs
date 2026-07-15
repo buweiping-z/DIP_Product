@@ -47,6 +47,14 @@ public class PrepController : ControllerBase {
         return Ok(ApiResponse.Ok(result, "备料扫描完成"));
     }
 
+    [HttpPost("{id}/finish")]
+    public async Task<IActionResult> FinishPrep(long id, [FromBody] FinishPrepRequest req)
+    {
+        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        await _svc.FinishPrepAsync(id, req.DetailIds, userId);
+        return Ok(ApiResponse.Ok(null, "备料完成"));
+    }
+
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> Cancel(long id)
     {
@@ -64,4 +72,9 @@ public class ScanPrepRequest
 {
     public string Barcode { get; set; } = "";
     public long? DetailId { get; set; }
+}
+
+public class FinishPrepRequest
+{
+    public List<long> DetailIds { get; set; } = new();
 }

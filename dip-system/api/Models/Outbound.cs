@@ -3,12 +3,33 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace DIP.Api.Models;
 
 /// <summary>
-/// 出库订单
+/// 出库订单（主表）
 /// </summary>
 public class OutboundOrder : BaseEntity
 {
     [Column("order_no")]
     public string OrderNo { get; set; } = string.Empty;
+
+    /// <summary>1=待出库 2=已出库 3=已取消</summary>
+    [Column("status")]
+    public int Status { get; set; } = 1;
+
+    [Column("operator_id")]
+    public long OperatorId { get; set; }
+
+    [Column("completed_at")]
+    public DateTime? CompletedAt { get; set; }
+
+    public List<OutboundDetail> Details { get; set; } = new();
+}
+
+/// <summary>
+/// 出库明细
+/// </summary>
+public class OutboundDetail : BaseEntity
+{
+    [Column("order_id")]
+    public long OrderId { get; set; }
 
     [Column("part_id")]
     public long PartId { get; set; }
@@ -28,13 +49,10 @@ public class OutboundOrder : BaseEntity
     [Column("quantity")]
     public decimal Quantity { get; set; }
 
-    /// <summary>1=待出库 2=已出库 3=已取消</summary>
+    /// <summary>1=待核销 2=已核销</summary>
     [Column("status")]
     public int Status { get; set; } = 1;
 
-    [Column("operator_id")]
-    public long OperatorId { get; set; }
-
-    [Column("completed_at")]
-    public DateTime? CompletedAt { get; set; }
+    [ForeignKey(nameof(OrderId))]
+    public OutboundOrder? Order { get; set; }
 }

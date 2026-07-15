@@ -239,7 +239,7 @@ public class OrderService
             .Where(o => o.Status == 1 || o.Status == 2).OrderBy(o => o.CreatedAt).ToListAsync();
         foreach (var order in activeOrders)
         {
-            var preps = await _db.PrepOrders.Where(p => p.ProductionOrderId == order.Id && p.Status != 3).ToListAsync();
+            var preps = await _db.PrepOrders.Where(p => p.ProductionOrderId == order.Id && p.Status == 1).ToListAsync();
             foreach (var prep in preps)
             {
                 var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prep.Id).ToListAsync();
