@@ -25,7 +25,8 @@
 |----|------|------|
 | id | long (PK) | |
 | order_id | long (FK → production_orders) | 所属订单 |
-| product_name | string | 产品名称 |
+| product_id | long (FK → parts/products) | 产品 ID，用于主数据变更后追溯 |
+| product_name | string | 产品名称（冗余，展示用） |
 | plan_qty | decimal | 该产品计划数量 |
 | created_at / updated_at / is_deleted | (BaseEntity) | |
 
@@ -80,41 +81,46 @@ BomItem.required_qty = Σ(该产品BOM用量 × 该产品plan_qty)，跨同组�
   "line_id": 1,
   "priority": 2,
   "products": [
-    { "product_name": "产品A", "plan_qty": 100 },
-    { "product_name": "产品B", "plan_qty": 50 },
-    { "product_name": "产品C", "plan_qty": 80 }
+    { "product_id": 1, "product_name": "产品A", "plan_qty": 100 },
+    { "product_id": 2, "product_name": "产品B", "plan_qty": 50 },
+    { "product_id": 3, "product_name": "产品C", "plan_qty": 80 }
   ]
 }
 ```
 
 **处理流程：**
 
-1. 逐产品加载 BOM，提取料号集合（part_no 去重排序）
-2. 按料号集合分组
-3. 每组生成一个 ProductionOrder：
+1. **空 BOM 拦截**：逐产品检查 ProductBoms 是否存在 → 不存在的产品立即抛异常 `"产品 X 没有 BOM 数据，请先导入 BOM"`，整个创建中止（不创建任何订单，避免部分成功）
+2. 逐产品加载 BOM，提取料号集合（part_no 去重排序）
+3. 按料号集合分组
+4. 每组生成一个 ProductionOrder：
    - order_no 自动生成
    - product_name = 组内产品名用 `/` 拼接
    - plan_qty = 组内所有产品 plan_qty 之和
-   - 写入 order_products 表（每产品一行）
+   - 写入 order_products 表（每产品一行，含 product_id）
    - 合并 BOM → BomItems
    - 生成 PrepOrder + 合并后的 PrepDetails
-4. RefreezeActiveOrdersAsync 统一冻结
-5. 返回 `{ orders: [{ id, order_no, ... }], total: N }`
+5. RefreezeActiveOrdersAsync 统一冻结
+6. 统一返回 `{ orders: [{ id, order_no, ... }], total: N }`
 
-**兼容性：** 未传 `products` 时走旧逻辑（单产品模式），保证手机端等已有调用方不受影响。
+**兼容性：** 未传 `products` 时走旧逻辑（单产品模式），但返回格式统一为 `{ orders: [{...}], total: 1 }`，前端不再需要区分新旧格式。
 
 ### `PUT /api/v1/orders/{id}` （编辑）
 
 加载 `order_products` 回填 → 用户增删改产品 → 确认时：
 
-1. 更新 `order_products`（增删改）
-2. 重新计算 `product_name` 和 `plan_qty`
-3. 按新分组重新计算合并 BOM
-4. BomItems / PrepDetails 同步增减：
+**核心约束：编辑后所有产品必须仍属于同一个 BOM 分组。** 订单不支持"分裂"——如果用户修改后产品分属不同 BOM 料号集合，前端阻止保存并提示 `"编辑后的产品 BOM 不一致，请删除当前订单并重新创建"`。
+
+1. 校验 BOM 分组一致性（前后端双重校验）
+2. 更新 `order_products`（增删改）
+3. 重新计算 `product_name` 和 `plan_qty`
+4. 按新分组重新计算合并 BOM
+5. **简化数量更新**：直接覆盖 BomItem.required_qty 和 PrepDetail.required_qty，无需校验"已备料数量是否超限"。RefreezeActiveOrdersAsync 统一解冻后重新冻结即可。散料管理场景下，备料数量由手机端本地计数器管理，后端 only 做冻结重算
+6. BomItems / PrepDetails 同步增减：
    - 新增料号 → 创建 PrepDetail
    - 减少料号 → 软删除对应 PrepDetail（先解冻其冻结量）
    - 料号不变 → 只更新 required_qty
-5. RefreezeActiveOrdersAsync 重新冻结
+7. RefreezeActiveOrdersAsync 重新冻结
 
 ### `GET /api/v1/orders/{id}/details` （详情）
 
@@ -125,13 +131,36 @@ BomItem.required_qty = Σ(该产品BOM用量 × 该产品plan_qty)，跨同组�
   "product_name": "主板V2.2 / 电源板V1",
   "plan_qty": 230,
   "order_products": [
-    { "product_name": "主板V2.2", "plan_qty": 100 },
-    { "product_name": "电源板V1", "plan_qty": 130 }
+    { "product_id": 1, "product_name": "主板V2.2", "plan_qty": 100 },
+    { "product_id": 2, "product_name": "电源板V1", "plan_qty": 130 }
   ],
   "bom_items": [...],
   "prep_orders": [...]
 }
 ```
+
+### `GET /api/v1/orders/products` （产品列表）
+
+响应格式升级，返回 `product_id` + `product_name`：
+
+```json
+{ "code": 0, "data": [
+  { "product_id": 1, "product_name": "主板V2.2", "bom_count": 8 },
+  { "product_id": 2, "product_name": "电源板V1", "bom_count": 8 }
+]}
+```
+
+`bom_count` 为该产品的 BOM 料号种类数，前端用于 BOM 分组一致性实时检测（编辑时新增产品后料号数不同即预警）。
+
+### 统一响应格式
+
+无论新旧请求格式，`POST` 和 `PUT` 统一返回：
+
+```json
+{ "code": 0, "data": { "orders": [{...}], "total": 1 }, "message": "订单创建成功" }
+```
+
+`total` 为本次创建的订单数（旧格式始终为 1）。前端统一读 `res.data.orders`，无需分支判断。
 
 ### 删除订单
 
@@ -156,8 +185,8 @@ BomItem.required_qty = Σ(该产品BOM用量 × 该产品plan_qty)，跨同组�
 | 接口V3 | 5 | 80 | 🗑 |
 
 - 表格下方实时预览："将生成 N 个订单"，按 BOM 料号集合自动分组显示
-- 编辑模式：打开时从 `order_products` 加载已有产品回填表格
-- 校验：BOM 为空的产品阻止创建并提示；至少保留一个产品
+- 编辑模式：打开时从 `order_products` 加载已有产品回填表格；新增产品后实时检测 BOM 分组一致性（料号数不同即高亮预警）
+- 校验：BOM 为空的产品阻止创建并提示；至少保留一个产品；编辑时分组不一致阻止保存
 
 ### 订单列表
 
@@ -181,9 +210,11 @@ BomItem.required_qty = Σ(该产品BOM用量 × 该产品plan_qty)，跨同组�
 
 | 场景 | 处理 |
 |------|------|
-| 所选产品的 BOM 为空 | 警告"产品 X 没有 BOM 数据，请先导入 BOM"，阻止创建 |
+| 所选产品的 BOM 为空 | 后端在分组前逐产品检查 ProductBoms，不存在的抛出 `"产品 X 没有 BOM 数据，请先导入 BOM"`；前端搜产品时也标注"无 BOM"并置灰不可选 |
 | 全部产品分到同一组 | 正常创建 1 个订单 |
-| 前端编辑时清空所有产品 | 阻止保存，"请至少保留一个产品" |
+| 前端编辑时清空所有产品 | 阻止保存，`"请至少保留一个产品"` |
+| 编辑时产品 BOM 分组不一致 | 前端实时检测（已选产品表格每个产品的 BOM 料号数不同即预警），提交时后端双重校验，不一致则阻断 `"编辑后的产品 BOM 不一致，请删除当前订单并重新创建"` |
+| 编辑修改 plan_qty | 直接覆盖 BomItem.required_qty 和 PrepDetail.required_qty，不校验已备料量。RefreezeActiveOrdersAsync 统一处理冻结重算 |
 
 ---
 
