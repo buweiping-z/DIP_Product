@@ -215,15 +215,17 @@ public class OrderService
 
         // 合并 BOM：按 part_no 汇总，跨所有产品
         var allProductNames = products.Select(p => p.name).Distinct().ToList();
-        var allBoms = await _db.ProductBoms
+        var allBoms = (await _db.ProductBoms
             .Where(b => allProductNames.Contains(b.ProductName))
-            .ToListAsync();
+            .ToListAsync())
+            .Where(b => allProductNames.Contains(b.ProductName, StringComparer.OrdinalIgnoreCase))
+            .ToList();
 
         // part_id → (part_no, total_required_qty)
         var merged = new Dictionary<long, (string partNo, decimal totalQty)>();
         foreach (var bom in allBoms)
         {
-            var productPlanQty = products.First(p => p.name == bom.ProductName).planQty;
+            var productPlanQty = products.First(p => string.Equals(p.name, bom.ProductName, StringComparison.OrdinalIgnoreCase)).planQty;
             var qty = bom.Quantity * productPlanQty;
             if (merged.ContainsKey(bom.PartId))
                 merged[bom.PartId] = (bom.PartNo, merged[bom.PartId].totalQty + qty);
@@ -296,8 +298,11 @@ public class OrderService
             ? je.EnumerateArray().ToList()
             : null;
 
-        if (productsRaw != null && productsRaw.Count > 0)
+        if (productsRaw != null)
         {
+            if (productsRaw.Count == 0)
+                throw AppException.Business("请至少保留一个产品");
+
             // === 新格式：多产品编辑 ===
             var products = new List<(long productId, string name, decimal qty)>();
             foreach (var item in productsRaw)
@@ -336,7 +341,7 @@ public class OrderService
 
             order.ProductName = displayName;
             order.PlanQty = totalPlanQty;
-            data.ApplyTo(order, new[] { "priority", "status" });
+            data.ApplyTo(order, new[] { "priority" });
 
             // 更新 order_products：删旧 + 写新
             var oldProducts = await _db.OrderProducts.Where(op => op.OrderId == orderId).ToListAsync();
