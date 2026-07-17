@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ClosedXML.Excel;
+using System.Text.Json;
 using DIP.Api.Data;
 using DIP.Api.Models;
 
@@ -83,11 +84,10 @@ public class OrderService
     }
 
     /// <summary>
-    /// 【新建订单 → 立即冻结库存】
-    /// 1. 遍历 BOM 料号，计算 totalReq = 单台用量 × planQty
-    /// 2. 查 Inventories 表 AvailableQty > 0，逐个 FreezeCoreAsync
-    /// 3. ActualQty = 实际冻结总量
-    /// 4. ActualQty < RequiredQty → Status=3(待补货)
+    /// 【新建订单 → 多产品分组 + BOM合并 + 立即冻结】
+    /// 1. 如果传了 products 数组 → 按 BOM 料号集合分组，每组生成一个订单
+    /// 2. 如果没传 → 走旧单产品逻辑（兼容）
+    /// 3. 返回 { orders: [...], total }
     /// </summary>
     public async Task<object> CreateAsync(Dictionary<string, object?> data, long operatorId)
     {
@@ -95,62 +95,181 @@ public class OrderService
         var line = await _db.ProductionLines.FirstOrDefaultAsync(l => l.Id == lineId);
         if (line == null) throw AppException.NotFound("产线不存在");
 
+        var priority = data.GetInt("priority") ?? 2;
+
+        // 判断新旧格式：是否有 products 数组
+        var productsRaw = data.TryGetValue("products", out var pv) && pv is JsonElement je && je.ValueKind == JsonValueKind.Array
+            ? je.EnumerateArray().ToList()
+            : null;
+
+        if (productsRaw == null || productsRaw.Count == 0)
+        {
+            // === 旧格式：单产品（兼容） ===
+            var productName = data.GetStr("product_name") ?? "";
+            var planQty = data.GetDecimal("plan_qty");
+            if (planQty == 0) planQty = 1;
+            if (string.IsNullOrEmpty(productName))
+                throw AppException.Business("产品名称不能为空");
+
+            var order = await CreateSingleOrder(lineId, priority,
+                new List<(long productId, string name, decimal qty)> { (0, productName, planQty) });
+            return new { orders = new[] { ToDict(order) }, total = 1 };
+        }
+
+        // === 新格式：多产品 → 分组 → 批量创建 ===
+        var products = new List<(long productId, string name, decimal qty)>();
+        foreach (var item in productsRaw)
+        {
+            var name = item.TryGetProperty("product_name", out var np) ? np.GetString() ?? "" : "";
+            var qty = item.TryGetProperty("plan_qty", out var qp) && qp.ValueKind == JsonValueKind.Number ? qp.GetDecimal() : 1m;
+            var pid = item.TryGetProperty("product_id", out var ip) && ip.ValueKind == JsonValueKind.Number ? ip.GetInt64() : 0L;
+            if (string.IsNullOrEmpty(name)) continue;
+            products.Add((pid, name, qty));
+        }
+
+        if (products.Count == 0)
+            throw AppException.Business("请至少选择一个产品");
+
+        // 空 BOM 拦截：逐产品检查
+        foreach (var p in products)
+        {
+            var hasBom = await _db.ProductBoms.AnyAsync(b => b.ProductName == p.name);
+            if (!hasBom)
+                throw AppException.Business($"产品 {p.name} 没有 BOM 数据，请先导入 BOM");
+        }
+
+        // 分组：按 BOM 料号集合（part_no 去重排序后拼接为签名）
+        var groups = new Dictionary<string, List<(long productId, string name, decimal qty)>>();
+        foreach (var p in products)
+        {
+            var partNos = await _db.ProductBoms
+                .Where(b => b.ProductName == p.name)
+                .Select(b => b.PartNo)
+                .Distinct()
+                .OrderBy(x => x)
+                .ToListAsync();
+            var signature = string.Join(",", partNos);  // 料号集合签名
+            if (!groups.ContainsKey(signature))
+                groups[signature] = new List<(long, string, decimal)>();
+            groups[signature].Add(p);
+        }
+
+        // 每组生成一个订单
+        var createdOrders = new List<object>();
+        foreach (var kv in groups)
+        {
+            var order = await CreateSingleOrder(lineId, priority, kv.Value);
+            createdOrders.Add(ToDict(order));
+        }
+
+        // 统一冻结
+        await RefreezeActiveOrdersAsync(operatorId);
+
+        return new { orders = createdOrders, total = createdOrders.Count };
+    }
+
+    /// <summary>
+    /// 创建一个订单（含 BOM 合并 + PrepOrder + order_products 写入）
+    /// products 列表中的产品必须属于同一 BOM 分组，调用方保证
+    /// </summary>
+    private async Task<ProductionOrder> CreateSingleOrder(long lineId, int priority,
+        List<(long productId, string name, decimal planQty)> products)
+    {
         var orderNo = $"WO{DateTime.UtcNow:yyyyMMddHHmmss}{new Random().Next(1000, 9999)}";
-        var planQty = data.GetDecimal("plan_qty");
-        if (planQty == 0) planQty = 1;
+        var totalPlanQty = products.Sum(p => p.planQty);
+        var productNames = products.Select(p => p.name).Distinct().ToList();
+        var displayName = string.Join(" / ", productNames);
 
         var order = new ProductionOrder
         {
-            OrderNo = orderNo, LineId = lineId,
-            ProductName = data.GetStr("product_name") ?? "",
-            PlanQty = planQty, Priority = data.GetInt("priority") ?? 2, Status = 1
+            OrderNo = orderNo,
+            LineId = lineId,
+            ProductName = displayName,
+            PlanQty = totalPlanQty,
+            Priority = priority,
+            Status = 1
         };
         _db.ProductionOrders.Add(order);
         await _db.SaveChangesAsync();
 
-        var productName = order.ProductName;
-        if (!string.IsNullOrEmpty(productName))
+        // 写入 order_products
+        foreach (var p in products)
         {
-            var boms = await _db.ProductBoms.Where(b => b.ProductName == productName).ToListAsync();
-            int seq = 0;
-            foreach (var b in boms)
+            _db.OrderProducts.Add(new OrderProduct
             {
-                seq++;
-                var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == b.PartId);
-                _db.BomItems.Add(new BomItem
-                {
-                    OrderId = order.Id, PartId = b.PartId,
-                    PartNo = part?.PartNo ?? b.PartNo,
-                    RequiredQty = b.Quantity, SeqNo = seq,
-                    ReferenceDesignator = "", LossRate = 0, IsCritical = 0
-                });
-            }
+                OrderId = order.Id,
+                ProductId = p.productId,
+                ProductName = p.name,
+                PlanQty = p.planQty
+            });
         }
-        await _db.SaveChangesAsync();
 
-        var prepOrderNo = $"PO-{order.OrderNo}";
-        var prep = new PrepOrder { OrderNo = prepOrderNo, ProductionOrderId = order.Id, LineId = order.LineId, Status = 1 };
-        _db.PrepOrders.Add(prep);
-        await _db.SaveChangesAsync();
+        // 合并 BOM：按 part_no 汇总，跨所有产品
+        var allProductNames = products.Select(p => p.name).Distinct().ToList();
+        var allBoms = await _db.ProductBoms
+            .Where(b => allProductNames.Contains(b.ProductName))
+            .ToListAsync();
 
-        var allBomItems = await _db.BomItems.Where(b => b.OrderId == order.Id).ToListAsync();
-        foreach (var b in allBomItems)
+        // part_id → (part_no, total_required_qty)
+        var merged = new Dictionary<long, (string partNo, decimal totalQty)>();
+        foreach (var bom in allBoms)
         {
-            var totalReq = b.RequiredQty * planQty * (1 + b.LossRate / 100);
-            _db.PrepDetails.Add(new PrepDetail
+            var productPlanQty = products.First(p => p.name == bom.ProductName).planQty;
+            var qty = bom.Quantity * productPlanQty;
+            if (merged.ContainsKey(bom.PartId))
+                merged[bom.PartId] = (bom.PartNo, merged[bom.PartId].totalQty + qty);
+            else
+                merged[bom.PartId] = (bom.PartNo, qty);
+        }
+
+        int seq = 0;
+        foreach (var kv in merged)
+        {
+            seq++;
+            _db.BomItems.Add(new BomItem
             {
-                PrepOrderId = prep.Id, PartId = b.PartId, PartNo = b.PartNo,
-                RequiredQty = totalReq, ActualQty = 0, LossQty = 0,
-                SubstituteFlag = b.SubstitutePartId.HasValue ? 1 : 0,
-                SubstitutePartId = b.SubstitutePartId, Status = 1,
-                ReferenceDesignator = b.ReferenceDesignator
+                OrderId = order.Id,
+                PartId = kv.Key,
+                PartNo = kv.Value.partNo,
+                RequiredQty = kv.Value.totalQty,
+                SeqNo = seq,
+                ReferenceDesignator = "",
+                LossRate = 0,
+                IsCritical = 0
             });
         }
         await _db.SaveChangesAsync();
 
-        // 统一走 RefreezeActiveOrdersAsync 冻结（先到先得）
-        await RefreezeActiveOrdersAsync(operatorId);
-        return await GetDetailAsync(order.Id);
+        // 创建 PrepOrder + PrepDetails
+        var prepOrderNo = $"PO-{order.OrderNo}";
+        var prep = new PrepOrder
+        {
+            OrderNo = prepOrderNo,
+            ProductionOrderId = order.Id,
+            LineId = order.LineId,
+            Status = 1
+        };
+        _db.PrepOrders.Add(prep);
+        await _db.SaveChangesAsync();
+
+        foreach (var kv in merged)
+        {
+            _db.PrepDetails.Add(new PrepDetail
+            {
+                PrepOrderId = prep.Id,
+                PartId = kv.Key,
+                PartNo = kv.Value.partNo,
+                RequiredQty = kv.Value.totalQty,
+                ActualQty = 0,
+                LossQty = 0,
+                SubstituteFlag = 0,
+                Status = 1,
+                ReferenceDesignator = ""
+            });
+        }
+        await _db.SaveChangesAsync();
+
+        return order;
     }
 
     /// <summary>
