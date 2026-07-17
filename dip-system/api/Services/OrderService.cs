@@ -363,13 +363,15 @@ public class OrderService
 
             // 合并新 BOM
             var allProductNames = products.Select(p => p.name).Distinct().ToList();
-            var allBoms = await _db.ProductBoms
+            var allBoms = (await _db.ProductBoms
                 .Where(b => allProductNames.Contains(b.ProductName))
-                .ToListAsync();
+                .ToListAsync())
+                .Where(b => allProductNames.Contains(b.ProductName, StringComparer.OrdinalIgnoreCase))
+                .ToList();
             var merged = new Dictionary<long, (string partNo, decimal totalQty)>();
             foreach (var bom in allBoms)
             {
-                var productPlanQty = products.First(p => p.name == bom.ProductName).qty;
+                var productPlanQty = products.First(p => string.Equals(p.name, bom.ProductName, StringComparison.OrdinalIgnoreCase)).qty;
                 var qty = bom.Quantity * productPlanQty;
                 if (merged.ContainsKey(bom.PartId))
                     merged[bom.PartId] = (bom.PartNo, merged[bom.PartId].totalQty + qty);
