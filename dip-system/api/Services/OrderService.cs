@@ -63,6 +63,9 @@ public class OrderService
         if (order == null) throw AppException.NotFound($"订单 {orderId} 不存在");
         var line = await _db.ProductionLines.FirstOrDefaultAsync(l => l.Id == order.LineId);
         var bomItems = await _db.BomItems.Where(b => b.OrderId == order.Id).ToListAsync();
+        var orderProducts = await _db.OrderProducts
+            .Where(op => op.OrderId == order.Id)
+            .ToListAsync();
         var prepOrders = await _db.PrepOrders.Where(p => p.ProductionOrderId == order.Id).ToListAsync();
         return new
         {
@@ -79,6 +82,12 @@ public class OrderService
             prep_orders = prepOrders.Select(p => (object)new
             {
                 p.Id, order_no = p.OrderNo, status = p.Status, kit_check_result = p.KitCheckResult
+            }).ToList(),
+            order_products = orderProducts.Select(op => (object)new
+            {
+                product_id = op.ProductId,
+                product_name = op.ProductName,
+                plan_qty = op.PlanQty
             }).ToList()
         };
     }
