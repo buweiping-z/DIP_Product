@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import HelpButton from '../lib/HelpButton';
 
+const PAGE_SIZE = 50;
+
 export default function InventoryList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -11,6 +13,12 @@ export default function InventoryList() {
   const [isManager, setIsManager] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<any>(null);
+
+  // pagination + sorting state
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [sortBy, setSortBy] = useState('');
+  const [sortOrder, setSortOrder] = useState<'asc'|'desc'>('asc');
 
   // import report
   const [report, setReport] = useState<any>(null);
@@ -24,22 +32,44 @@ export default function InventoryList() {
     }).catch(() => {});
   }, []);
 
-  const fetchData = useCallback(async (pn?: string, lc?: string) => {
+  const fetchData = useCallback(async (p?: number, pn?: string, lc?: string, sb?: string, so?: string) => {
     setLoading(true);
     try {
-      const params: any = { page: 1, page_size: 100 };
-      if (pn ?? partNo) params.part_no = pn ?? partNo;
-      if (lc ?? locationCode) params.location_code = lc ?? locationCode;
-      setData((await api.get('/inventory', { params })).data?.items || []);
+      const params: any = {
+        page: p ?? page,
+        page_size: PAGE_SIZE,
+        sort_by: sb !== undefined ? sb : sortBy || undefined,
+        sort_order: so !== undefined ? so : sortOrder
+      };
+      if ((pn ?? partNo)) params.part_no = pn ?? partNo;
+      if ((lc ?? locationCode)) params.location_code = lc ?? locationCode;
+      const res = await api.get('/inventory', { params });
+      setData(res.data?.items || []);
+      setTotal(res.data?.total || 0);
     } finally { setLoading(false); }
-  }, [partNo, locationCode]);
+  }, [page, partNo, locationCode, sortBy, sortOrder]);
 
   useEffect(() => { fetchData(); }, []);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => fetchData(), 300);
+    timerRef.current = setTimeout(() => { setPage(1); fetchData(1); }, 300);
   }, [partNo, locationCode]);
+
+  const handleSort = (column: string) => {
+    const newOrder = sortBy === column && sortOrder === 'asc' ? 'desc' : 'asc';
+    setSortBy(column);
+    setSortOrder(newOrder);
+    setPage(1);
+    fetchData(1, undefined, undefined, column, newOrder);
+  };
+
+  const sortIcon = (column: string) => {
+    if (sortBy !== column) return <span className="text-gray-300 ml-1">⇅</span>;
+    return <span className="text-blue-600 ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -49,7 +79,7 @@ export default function InventoryList() {
       const result = res.data;
       setReport(result);
       setMsg(`导入完成: 成功 ${result.success_count || 0} 条, 跳过 ${result.skip_count || 0} 条`);
-      fetchData();
+      setPage(1); fetchData(1);
     } catch (err: any) { setMsg('导入失败: ' + (err.message || '')); }
     e.target.value = '';
   };
@@ -110,22 +140,45 @@ export default function InventoryList() {
       )}
 
       {loading ? <p>加载中...</p> : (
-        <table className="w-full bg-white rounded-lg shadow">
-          <thead><tr className="bg-gray-50 text-left text-sm">
-            <th className="p-3">料号</th><th className="p-3">物料名称</th><th className="p-3">库位</th>
-            <th className="p-3 text-right">总数量</th><th className="p-3 text-right">可用</th><th className="p-3 text-right">冻结</th>
-          </tr></thead>
-          <tbody>{data.map(i => (
-            <tr key={i.id} className="border-t hover:bg-gray-50">
-              <td className="p-3 font-mono text-sm">{i.part_no}</td>
-              <td className="p-3">{i.part_name}</td>
-              <td className="p-3 font-mono text-sm">{i.location_code}</td>
-              <td className="p-3 text-right">{i.total_qty}</td>
-              <td className="p-3 text-right text-green-600">{i.available_qty}</td>
-              <td className="p-3 text-right text-orange-600">{i.frozen_qty}</td>
-            </tr>
-          ))}</tbody>
-        </table>
+        <>
+          <table className="w-full bg-white rounded-lg shadow">
+            <thead><tr className="bg-gray-50 text-left text-sm">
+              <th className="p-3 cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('part_no')}>料号{sortIcon('part_no')}</th>
+              <th className="p-3">物料名称</th>
+              <th className="p-3 cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('location_code')}>库位{sortIcon('location_code')}</th>
+              <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('total_qty')}>总数量{sortIcon('total_qty')}</th>
+              <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('available_qty')}>可用{sortIcon('available_qty')}</th>
+              <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('frozen_qty')}>冻结{sortIcon('frozen_qty')}</th>
+            </tr></thead>
+            <tbody>{data.map(i => (
+              <tr key={i.id} className="border-t hover:bg-gray-50">
+                <td className="p-3 font-mono text-sm">{i.part_no}</td>
+                <td className="p-3">{i.part_name}</td>
+                <td className="p-3 font-mono text-sm">{i.location_code}</td>
+                <td className="p-3 text-right">{i.total_qty}</td>
+                <td className="p-3 text-right text-green-600">{i.available_qty}</td>
+                <td className="p-3 text-right text-orange-600">{i.frozen_qty}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+
+          {/* Pagination */}
+          <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
+            <span>共 <strong>{total}</strong> 条记录，第 <strong>{page}</strong> / <strong>{totalPages || 1}</strong> 页</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { const p = page - 1; setPage(p); fetchData(p); }}
+                disabled={page <= 1}
+                className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >上一页</button>
+              <button
+                onClick={() => { const p = page + 1; setPage(p); fetchData(p); }}
+                disabled={page >= totalPages}
+                className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >下一页</button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

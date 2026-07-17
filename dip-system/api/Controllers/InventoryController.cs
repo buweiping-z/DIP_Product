@@ -17,8 +17,9 @@ public class InventoryController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetList([FromQuery] string? part_no, [FromQuery] string? location_code,
-        [FromQuery] int page = 1, [FromQuery] int page_size = 20)
-        => Ok(ApiResponse.Ok(await _svc.QueryAsync(part_no, location_code, page, page_size)));
+        [FromQuery] int page = 1, [FromQuery] int page_size = 50,
+        [FromQuery] string? sort_by = null, [FromQuery] string? sort_order = null)
+        => Ok(ApiResponse.Ok(await _svc.QueryAsync(part_no, location_code, page, page_size, sort_by, sort_order)));
 
     [HttpGet("available/{partId}")]
     public async Task<IActionResult> GetAvailable(long partId)

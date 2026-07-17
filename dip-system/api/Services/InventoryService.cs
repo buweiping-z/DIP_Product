@@ -411,7 +411,8 @@ public class InventoryService
         return new { inv.Id, inv.PartId, location_id = inv.LocationId, location_code = finalLoc?.LocationCode ?? "", total_qty = inv.TotalQty, available_qty = inv.AvailableQty, frozen_qty = inv.FrozenQty };
     }
 
-    public async Task<object> QueryAsync(string? partNo, string? locationCode, int page = 1, int pageSize = 20)
+    public async Task<object> QueryAsync(string? partNo, string? locationCode, int page = 1, int pageSize = 50,
+        string? sortBy = null, string? sortOrder = null)
     {
         var query = _db.Inventories.AsQueryable();
         if (!string.IsNullOrEmpty(partNo))
@@ -425,7 +426,20 @@ public class InventoryService
             query = query.Where(i => locIds.Contains(i.LocationId));
         }
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(i => i.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+
+        // 排序：默认按 id desc，支持 part_no / location_code / total_qty / available_qty / frozen_qty
+        var desc = sortOrder != "asc";
+        query = sortBy switch
+        {
+            "part_no" => desc ? query.OrderByDescending(i => i.PartId) : query.OrderBy(i => i.PartId),
+            "location_code" => desc ? query.OrderByDescending(i => i.LocationId) : query.OrderBy(i => i.LocationId),
+            "total_qty" => desc ? query.OrderByDescending(i => i.TotalQty) : query.OrderBy(i => i.TotalQty),
+            "available_qty" => desc ? query.OrderByDescending(i => i.AvailableQty) : query.OrderBy(i => i.AvailableQty),
+            "frozen_qty" => desc ? query.OrderByDescending(i => i.FrozenQty) : query.OrderBy(i => i.FrozenQty),
+            _ => query.OrderByDescending(i => i.Id)
+        };
+
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
         var partIdsSet = items.Select(i => i.PartId).Distinct().ToList();
         var locIdsSet = items.Select(i => i.LocationId).Distinct().ToList();
