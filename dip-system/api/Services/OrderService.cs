@@ -120,16 +120,11 @@ public class OrderService
             if (string.IsNullOrEmpty(productName))
                 throw AppException.Business("产品名称不能为空");
 
-            using var tx = await _db.Database.BeginTransactionAsync();
-            try
-            {
-                var order = await CreateSingleOrder(lineId, priority,
-                    new List<(long productId, string name, decimal qty)> { (0, productName, planQty) });
-                await RefreezeActiveOrdersAsync(operatorId);
-                await tx.CommitAsync();
-                return new { orders = new[] { ToDict(order) }, total = 1 };
-            }
-            catch { await tx.RollbackAsync(); throw; }
+            var order = await CreateSingleOrder(lineId, priority,
+                new List<(long productId, string name, decimal qty)> { (0, productName, planQty) });
+            // 冻结不阻塞订单创建——缺料走待补货
+            try { await RefreezeActiveOrdersAsync(operatorId); } catch { }
+            return new { orders = new[] { ToDict(order) }, total = 1 };
         }
 
         // === 新格式：多产品 → 分组 → 批量创建 ===
@@ -170,26 +165,18 @@ public class OrderService
             groups[signature].Add(p);
         }
 
-        // 每组生成一个订单（事务包裹：创建+冻结原子化，防止冻结失败留下孤儿订单）
-        using var transaction = await _db.Database.BeginTransactionAsync();
-        try
+        // 每组生成一个订单
+        var createdOrders = new List<object>();
+        foreach (var kv in groups)
         {
-            var createdOrders = new List<object>();
-            foreach (var kv in groups)
-            {
-                var order = await CreateSingleOrder(lineId, priority, kv.Value);
-                createdOrders.Add(ToDict(order));
-            }
+            var order = await CreateSingleOrder(lineId, priority, kv.Value);
+            createdOrders.Add(ToDict(order));
+        }
 
-            await RefreezeActiveOrdersAsync(operatorId);
-            await transaction.CommitAsync();
-            return new { orders = createdOrders, total = createdOrders.Count };
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
+        // 统一冻结（不阻塞订单创建——缺料走待补货，Refreeze 内部已有 try/catch 兜底）
+        try { await RefreezeActiveOrdersAsync(operatorId); } catch { }
+
+        return new { orders = createdOrders, total = createdOrders.Count };
     }
 
     /// <summary>
