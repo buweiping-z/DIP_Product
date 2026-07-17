@@ -122,6 +122,7 @@ public class OrderService
 
             var order = await CreateSingleOrder(lineId, priority,
                 new List<(long productId, string name, decimal qty)> { (0, productName, planQty) });
+            await RefreezeActiveOrdersAsync(operatorId);
             return new { orders = new[] { ToDict(order) }, total = 1 };
         }
 
@@ -605,14 +606,24 @@ public class OrderService
     public async Task<List<object>> GetProductNamesAsync()
     {
         var boms = await _db.ProductBoms.ToListAsync();
+
+        // Build signature per product: sorted, distinct part_nos joined by comma
+        var signatures = boms
+            .GroupBy(b => b.ProductName)
+            .ToDictionary(
+                g => g.Key,
+                g => string.Join(",", g.Select(b => b.PartNo).Distinct().OrderBy(x => x))
+            );
+
         return boms
             .GroupBy(b => new { b.ProductName, b.PartId })
             .GroupBy(g => g.Key.ProductName)
             .Select(g => (object)new
             {
                 product_name = g.Key,
-                product_id = g.First().First().PartId,
-                bom_count = g.Count()
+                product_id = 0L,  // placeholder — no products table exists
+                bom_count = g.Count(),
+                bom_signature = signatures.GetValueOrDefault(g.Key, "")
             })
             .ToList();
     }

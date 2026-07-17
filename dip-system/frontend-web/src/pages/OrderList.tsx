@@ -9,12 +9,14 @@ interface ProductInfo {
   product_id: number;
   product_name: string;
   bom_count: number;
+  bom_signature: string;
 }
 
 interface SelectedProduct {
   product_id: number;
   product_name: string;
   bom_count: number;
+  bom_signature: string;
   plan_qty: number;
 }
 
@@ -84,7 +86,7 @@ export default function OrderList() {
       const ops = detailRes.data?.order_products || [];
       const enriched = ops.map((op: any) => {
         const prod = prods.find((p: ProductInfo) => p.product_name === op.product_name);
-        return { ...op, bom_count: prod?.bom_count || 0 };
+        return { ...op, bom_count: prod?.bom_count || 0, bom_signature: prod?.bom_signature || '' };
       });
       setSelectedProducts(enriched);
     } catch { setBomItems([]); }
@@ -113,6 +115,7 @@ export default function OrderList() {
       product_id: prod.product_id,
       product_name: prod.product_name,
       bom_count: prod.bom_count,
+      bom_signature: prod.bom_signature,
       plan_qty: 1
     }]);
     setProductSearch('');
@@ -131,11 +134,11 @@ export default function OrderList() {
     setSelectedProducts(updated);
   };
 
-  // 按 bom_count 分组预览（同 bom_count 的为一组）
+  // 按 bom_signature 分组预览（同 BOM 料号集合的为一组）
   const groupPreview = (() => {
-    const groups = new Map<number, SelectedProduct[]>();
+    const groups = new Map<string, SelectedProduct[]>();
     selectedProducts.forEach(sp => {
-      const key = sp.bom_count;
+      const key = sp.bom_signature || `unknown_${sp.product_name}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(sp);
     });
@@ -143,12 +146,12 @@ export default function OrderList() {
   })();
 
   // 编辑模式下的 BOM 一致性检测
-  const allSameBomCount = selectedProducts.length <= 1
-    || new Set(selectedProducts.map(p => p.bom_count)).size === 1;
+  const allSameBomSignature = selectedProducts.length <= 1
+    || new Set(selectedProducts.map(p => p.bom_signature)).size === 1;
 
   const handleSubmit = async () => {
     if (selectedProducts.length === 0) return alert('请至少选择一个产品');
-    if (editId && !allSameBomCount) return alert('编辑后的产品 BOM 不一致，请删除当前订单并重新创建');
+    if (editId && !allSameBomSignature) return alert('编辑后的产品 BOM 不一致，请删除当前订单并重新创建');
 
     try {
       const payload = {
@@ -319,7 +322,7 @@ export default function OrderList() {
                   </tr></thead>
                   <tbody>
                     {selectedProducts.map((sp, idx) => (
-                      <tr key={idx} className={`border-t ${editId && !allSameBomCount && sp.bom_count !== selectedProducts[0]?.bom_count ? 'bg-red-50' : ''}`}>
+                      <tr key={idx} className={`border-t ${editId && !allSameBomSignature && sp.bom_count !== selectedProducts[0]?.bom_count ? 'bg-red-50' : ''}`}>
                         <td className="p-2">{sp.product_name}</td>
                         <td className="p-2 text-center">{sp.bom_count}</td>
                         <td className="p-2 text-right">
@@ -345,16 +348,16 @@ export default function OrderList() {
             {/* 分组预览 */}
             {selectedProducts.length > 0 && (
               <div className="mb-4 p-3 bg-gray-50 rounded text-sm">
-                {editId && !allSameBomCount ? (
+                {editId && !allSameBomSignature ? (
                   <p className="text-red-600 font-medium">⚠ 编辑后的产品 BOM 不一致，请删除当前订单并重新创建</p>
                 ) : (
                   <p className="text-gray-600">
                     将生成 <strong>{groupPreview.length}</strong> 个订单：
-                    {groupPreview.map(([bomCount, prods], gi) => (
+                    {groupPreview.map(([signature, prods], gi) => (
                       <span key={gi}>
                         {gi > 0 && '；'}
                         订单{gi + 1}: {prods.map(p => p.product_name).join(' / ')}
-                        {groupPreview.length > 1 && `（${bomCount}种料号）`}
+                        {groupPreview.length > 1 && `（${prods[0]?.bom_count || '?'}种料号）`}
                       </span>
                     ))}
                   </p>
