@@ -545,6 +545,8 @@ public class OrderService
         if (order == null) throw AppException.NotFound($"订单 {orderId} 不存在");
         if (order.Status != 4) await CancelAsync(orderId, operatorId); // 先取消再软删除
         order.IsDeleted = true;
+        var orderProducts = await _db.OrderProducts.Where(op => op.OrderId == orderId).ToListAsync();
+        foreach (var op in orderProducts) op.IsDeleted = true;
         var preps = await _db.PrepOrders.Where(p => p.ProductionOrderId == order.Id).ToListAsync();
         foreach (var p in preps) p.IsDeleted = true;
         var details = await _db.PrepDetails.Where(d => preps.Select(p => p.Id).Contains(d.PrepOrderId)).ToListAsync();
