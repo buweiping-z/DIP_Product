@@ -414,46 +414,43 @@ public class InventoryService
     public async Task<object> QueryAsync(string? partNo, string? locationCode, int page = 1, int pageSize = 50,
         string? sortBy = null, string? sortOrder = null)
     {
-        var query = _db.Inventories.AsQueryable();
+        // 用 join 查询，可以直接按 part_no / location_code 字符串排序
+        var query = from i in _db.Inventories
+                    join p in _db.Parts on i.PartId equals p.Id
+                    join l in _db.WarehouseLocations on i.LocationId equals l.Id
+                    select new { i, p, l };
+
         if (!string.IsNullOrEmpty(partNo))
-        {
-            var partIds = _db.Parts.Where(p => p.PartNo.Contains(partNo)).Select(p => p.Id);
-            query = query.Where(i => partIds.Contains(i.PartId));
-        }
+            query = query.Where(x => x.p.PartNo.Contains(partNo));
         if (!string.IsNullOrEmpty(locationCode))
-        {
-            var locIds = _db.WarehouseLocations.Where(l => l.LocationCode.Contains(locationCode)).Select(l => l.Id);
-            query = query.Where(i => locIds.Contains(i.LocationId));
-        }
+            query = query.Where(x => x.l.LocationCode.Contains(locationCode));
+
         var total = await query.CountAsync();
 
-        // 排序：默认按 id desc，支持 part_no / location_code / total_qty / available_qty / frozen_qty
+        // 排序：默认按 id desc
         var desc = sortOrder != "asc";
         query = sortBy switch
         {
-            "part_no" => desc ? query.OrderByDescending(i => i.PartId) : query.OrderBy(i => i.PartId),
-            "location_code" => desc ? query.OrderByDescending(i => i.LocationId) : query.OrderBy(i => i.LocationId),
-            "total_qty" => desc ? query.OrderByDescending(i => i.TotalQty) : query.OrderBy(i => i.TotalQty),
-            "available_qty" => desc ? query.OrderByDescending(i => i.AvailableQty) : query.OrderBy(i => i.AvailableQty),
-            "frozen_qty" => desc ? query.OrderByDescending(i => i.FrozenQty) : query.OrderBy(i => i.FrozenQty),
-            _ => query.OrderByDescending(i => i.Id)
+            "part_no"      => desc ? query.OrderByDescending(x => x.p.PartNo) : query.OrderBy(x => x.p.PartNo),
+            "location_code"=> desc ? query.OrderByDescending(x => x.l.LocationCode) : query.OrderBy(x => x.l.LocationCode),
+            "total_qty"    => desc ? query.OrderByDescending(x => x.i.TotalQty) : query.OrderBy(x => x.i.TotalQty),
+            "available_qty"=> desc ? query.OrderByDescending(x => x.i.AvailableQty) : query.OrderBy(x => x.i.AvailableQty),
+            "frozen_qty"   => desc ? query.OrderByDescending(x => x.i.FrozenQty) : query.OrderBy(x => x.i.FrozenQty),
+            _              => query.OrderByDescending(x => x.i.Id)
         };
 
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
-        var partIdsSet = items.Select(i => i.PartId).Distinct().ToList();
-        var locIdsSet = items.Select(i => i.LocationId).Distinct().ToList();
-        var partsMap = (await _db.Parts.Where(p => partIdsSet.Contains(p.Id)).ToListAsync()).ToDictionary(p => p.Id);
-        var locsMap = (await _db.WarehouseLocations.Where(l => locIdsSet.Contains(l.Id)).ToListAsync()).ToDictionary(l => l.Id);
-
-        var result = items.Select(i => new
+        var result = items.Select(x => new
         {
-            i.Id, part_id = i.PartId,
-            part_no = partsMap.TryGetValue(i.PartId, out var p) ? p.PartNo : "",
-            part_name = p?.PartName ?? "",
-            location_id = i.LocationId,
-            location_code = locsMap.TryGetValue(i.LocationId, out var l) ? l.LocationCode : "",
-            total_qty = i.TotalQty, available_qty = i.AvailableQty, frozen_qty = i.FrozenQty
+            x.i.Id, part_id = x.i.PartId,
+            part_no = x.p.PartNo,
+            part_name = x.p.PartName ?? "",
+            location_id = x.i.LocationId,
+            location_code = x.l.LocationCode,
+            total_qty = x.i.TotalQty,
+            available_qty = x.i.AvailableQty,
+            frozen_qty = x.i.FrozenQty
         }).ToList();
 
         return new { total, page, page_size = pageSize, items = result };
