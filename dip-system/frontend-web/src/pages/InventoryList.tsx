@@ -93,6 +93,8 @@ export default function InventoryList() {
           {isManager && (
             <button onClick={() => fileRef.current?.click()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">导入库存</button>
           )}
+          <a href={`/api/v1/inventory/export?part_no=${encodeURIComponent(partNo)}&location_code=${encodeURIComponent(locationCode)}`}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导出Excel</a>
           <a href="/api/v1/inventory/template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载模板</a>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
         </div>

@@ -561,6 +561,45 @@ public class InventoryService
         return new { success_count = success, skip_count = skip, details };
     }
 
+    public async Task<byte[]> ExportAsync(string? partNo, string? locationCode)
+    {
+        // 复用 QueryAsync 的 join 查询获取全量数据
+        var query = from i in _db.Inventories
+                    join p in _db.Parts on i.PartId equals p.Id
+                    join l in _db.WarehouseLocations on i.LocationId equals l.Id
+                    select new { i, p, l };
+
+        if (!string.IsNullOrEmpty(partNo))
+            query = query.Where(x => x.p.PartNo.Contains(partNo));
+        if (!string.IsNullOrEmpty(locationCode))
+            query = query.Where(x => x.l.LocationCode.Contains(locationCode));
+
+        var items = await query.OrderBy(x => x.p.PartNo).ThenBy(x => x.l.LocationCode).ToListAsync();
+
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("库存数据");
+        ws.Cell(1, 1).Value = "料号";
+        ws.Cell(1, 2).Value = "物料名称";
+        ws.Cell(1, 3).Value = "库位";
+        ws.Cell(1, 4).Value = "总数量";
+        ws.Cell(1, 5).Value = "可用数量";
+        ws.Cell(1, 6).Value = "冻结数量";
+        int row = 2;
+        foreach (var x in items)
+        {
+            ws.Cell(row, 1).Value = x.p.PartNo;
+            ws.Cell(row, 2).Value = x.p.PartName ?? "";
+            ws.Cell(row, 3).Value = x.l.LocationCode;
+            ws.Cell(row, 4).Value = (double)x.i.TotalQty;
+            ws.Cell(row, 5).Value = (double)x.i.AvailableQty;
+            ws.Cell(row, 6).Value = (double)x.i.FrozenQty;
+            row++;
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
     public async Task<byte[]> ExportTemplateAsync()
     {
         using var wb = new XLWorkbook();

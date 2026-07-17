@@ -29,6 +29,13 @@ public class InventoryController : ControllerBase
     public async Task<IActionResult> GetFifoLots(long partId, [FromQuery] decimal required_qty)
         => Ok(ApiResponse.Ok(await _svc.GetFifoLotsAsync(partId, required_qty)));
 
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? part_no, [FromQuery] string? location_code)
+    {
+        var bytes = await _svc.ExportAsync(part_no, location_code);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "inventory_export.xlsx");
+    }
+
     [AllowAnonymous]
     [HttpGet("template")]
     public async Task<IActionResult> Template()
