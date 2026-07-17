@@ -93,6 +93,25 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
+    // 补建 EnsureCreated 遗漏的新表（已有数据库新增实体不会自动建表）
+    db.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS order_products (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            order_id BIGINT NOT NULL,
+            product_id BIGINT NOT NULL DEFAULT 0,
+            product_name VARCHAR(200) NOT NULL DEFAULT '',
+            plan_qty DECIMAL(18,4) NOT NULL DEFAULT 1,
+            tenant_id BIGINT NOT NULL DEFAULT 0,
+            is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            created_by BIGINT NULL,
+            updated_by BIGINT NULL,
+            PRIMARY KEY (id),
+            INDEX idx_order_products_order (order_id),
+            CONSTRAINT fk_order_products_order FOREIGN KEY (order_id) REFERENCES production_orders(id)
+        )");
+
     // 种子角色（幂等 — 已存在则跳过）
     if (!db.Roles.Any(r => r.RoleCode == "admin"))
         db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
