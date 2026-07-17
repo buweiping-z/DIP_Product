@@ -122,8 +122,7 @@ public class OrderService
 
             var order = await CreateSingleOrder(lineId, priority,
                 new List<(long productId, string name, decimal qty)> { (0, productName, planQty) });
-            // 冻结不阻塞订单创建——缺料走待补货
-            try { await RefreezeActiveOrdersAsync(operatorId); } catch { }
+            await RefreezeActiveOrdersAsync(operatorId);
             return new { orders = new[] { ToDict(order) }, total = 1 };
         }
 
@@ -173,8 +172,8 @@ public class OrderService
             createdOrders.Add(ToDict(order));
         }
 
-        // 统一冻结（不阻塞订单创建——缺料走待补货，Refreeze 内部已有 try/catch 兜底）
-        try { await RefreezeActiveOrdersAsync(operatorId); } catch { }
+        // 统一冻结（缺料自动标记待补货，FreezeCoreAsync 内部不抛异常）
+        await RefreezeActiveOrdersAsync(operatorId);
 
         return new { orders = createdOrders, total = createdOrders.Count };
     }
@@ -530,8 +529,7 @@ public class OrderService
                     {
                         if (totalFrozen >= d.RequiredQty) break;
                         var qty = Math.Min(inv.AvailableQty, d.RequiredQty - totalFrozen);
-                        await invSvc.FreezeCoreAsync(d.PartId, inv.LocationId, qty, operatorId, "Refreeze", order.Id);
-                        totalFrozen += qty;
+                        try { await invSvc.FreezeCoreAsync(d.PartId, inv.LocationId, qty, operatorId, "Refreeze", order.Id); totalFrozen += qty; } catch { }
                     }
                     d.ActualQty = totalFrozen;           // 本轮冻到多少
                     if (totalFrozen < d.RequiredQty) d.Status = 3; // 不够 → 待补货

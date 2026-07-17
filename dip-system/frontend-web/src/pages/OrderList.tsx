@@ -34,6 +34,7 @@ export default function OrderList() {
   const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [bomPreview, setBomPreview] = useState<any[]>([]);
   const [detailData, setDetailData] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
 
@@ -148,6 +149,31 @@ export default function OrderList() {
   // 编辑模式下的 BOM 一致性检测
   const allSameBomSignature = selectedProducts.length <= 1
     || new Set(selectedProducts.map(p => p.bom_signature)).size === 1;
+
+  // 创建模式：实时计算合并 BOM 清单预览
+  useEffect(() => {
+    if (editId || selectedProducts.length === 0) { setBomPreview([]); return; }
+    let cancelled = false;
+    (async () => {
+      const merged: Record<string, { part_no: string; required: number; stock: number }> = {};
+      for (const sp of selectedProducts) {
+        try {
+          const res = await api.get('/orders/product-bom', { params: { name: sp.product_name } });
+          for (const item of (res.data || [])) {
+            const key = item.part_no;
+            const req = (item.quantity || 0) * sp.plan_qty;
+            if (merged[key]) {
+              merged[key].required += req;
+            } else {
+              merged[key] = { part_no: item.part_no, required: req, stock: item.stock || 0 };
+            }
+          }
+        } catch {}
+      }
+      if (!cancelled) setBomPreview(Object.values(merged));
+    })();
+    return () => { cancelled = true; };
+  }, [selectedProducts, editId]);
 
   const handleSubmit = async () => {
     if (selectedProducts.length === 0) return alert('请至少选择一个产品');
@@ -362,6 +388,33 @@ export default function OrderList() {
                     ))}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* 创建模式：合并 BOM 清单预览 */}
+            {!editId && bomPreview.length > 0 && (
+              <div className="mb-4">
+                <h3 className="font-medium mb-2">合并 BOM 清单预览</h3>
+                <table className="w-full border text-sm">
+                  <thead><tr className="bg-gray-100">
+                    <th className="p-2 text-left">#</th>
+                    <th className="p-2 text-left">料号</th>
+                    <th className="p-2 text-right">总需求</th>
+                    <th className="p-2 text-right">可用库存</th>
+                    <th className="p-2 text-center">状态</th>
+                  </tr></thead>
+                  <tbody>{bomPreview.map((item: any, idx: number) => (
+                    <tr key={idx} className={`border-t ${item.stock < item.required ? 'bg-red-50' : ''}`}>
+                      <td className="p-2">{idx + 1}</td>
+                      <td className="p-2 font-mono">{item.part_no}</td>
+                      <td className="p-2 text-right">{item.required}</td>
+                      <td className="p-2 text-right">{item.stock}</td>
+                      <td className={`p-2 text-center text-xs ${item.stock >= item.required ? 'text-green-600' : 'text-red-600 font-medium'}`}>
+                        {item.stock >= item.required ? '充足' : `缺 ${item.required - item.stock}`}
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
               </div>
             )}
 
