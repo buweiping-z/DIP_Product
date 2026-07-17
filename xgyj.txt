@@ -1,0 +1,280 @@
+我仔细审阅了这份DIP物料管理系统设计文档，整体架构清晰、考虑周全。以下是详细的确认意见：
+
+✅ 整体评价
+维度	评分	说明
+业务完整性	⭐⭐⭐⭐⭐	覆盖了上料→备料→上线→退料→盘点全流程
+技术可行性	⭐⭐⭐⭐⭐	技术栈成熟，架构合理
+数据模型	⭐⭐⭐⭐⭐	ER关系清晰，字段设计完整
+并发/可靠性	⭐⭐⭐⭐⭐	乐观锁+分布式锁+事务边界设计到位
+电子行业特性	⭐⭐⭐⭐⭐	FIFO/MSL/替代料/位号均覆盖
+文档规范性	⭐⭐⭐⭐⭐	结构清晰，图表完整
+🔍 发现的问题与建议
+一、数据模型问题
+1. InventoryLot 缺少 PartId 冗余字段（P0）
+sql
+-- 当前设计
+InventoryLot:
+  - InventoryId (FK)
+  - LocationId (FK)
+
+-- 问题：查询批次时需 JOIN Inventory 才能获取 PartId
+-- 建议：冗余 PartId
+InventoryLot:
+  - InventoryId (FK)
+  - PartId (FK)  -- 🆕 冗余
+  - LocationId (FK)
+理由：
+
+FIFO查询需要按 (PartId, LocationId, Status) 过滤
+
+批次追溯需要直接查 PartId
+
+避免频繁 JOIN Inventory 表
+
+2. PrepDetail 缺少 ActualQty 累计校验约束（P1）
+当前设计允许 ActualQty 无限累加，应增加业务层校验：
+
+csharp
+// 备料时校验
+if (detail.ActualQty + quantity > detail.RequiredQty)
+{
+    throw new BusinessException($"备料数量超过需求，需求:{detail.RequiredQty}");
+}
+建议： 在数据库层添加 CHECK 约束（MySQL 8.0 支持）：
+
+sql
+ALTER TABLE PrepDetail ADD CONSTRAINT CHK_ActualQty_LE_RequiredQty 
+    CHECK (ActualQty <= RequiredQty);
+3. OnlineConfirm 缺少 LocationId 字段（P1）
+当前只有 SourceLocationCode（冗余），缺少外键 SourceLocationId：
+
+sql
+OnlineConfirm:
+  - SourceLocationId BIGINT FK→WarehouseLocation.Id  -- 🆕 新增
+  - SourceLocationCode VARCHAR(30)  -- 保留冗余
+理由： 冗余字段仅用于显示，外键用于关联查询和保证数据一致性。
+
+4. PartSubstitute 缺少 SubstituteReason 字段（P2）
+sql
+ALTER TABLE PartSubstitute ADD COLUMN SubstituteReason VARCHAR(200) COMMENT '替代原因';
+二、业务流程问题
+5. 上料流程缺少「目标库位容量校验」（P1）
+csharp
+// LoadingService.ConfirmAsync()
+var targetLocation = await _locationRepo.GetByIdAsync(request.TargetLocationId);
+var currentUsage = await _inventoryRepo
+    .FindAsync(i => i.LocationId == targetLocation.Id)
+    .SumAsync(i => i.TotalQty);
+
+if (currentUsage + totalQty > targetLocation.MaxCapacity)
+{
+    throw new BusinessException($"库位 {targetLocation.LocationCode} 容量不足");
+}
+6. 备料单生成未考虑「替代料自动匹配」（P1）
+当前设计：BOM 中已指定 SubstitutePartId
+
+建议增强： 如果正料库存不足，系统自动推荐可用替代料：
+
+csharp
+// PrepOrderService.GenerateFromBOM()
+foreach (var bomItem in bomItems)
+{
+    var primaryPart = bomItem.Part;
+    var availableQty = await GetAvailableQty(primaryPart.Id);
+    
+    if (availableQty < bomItem.RequiredQty)
+    {
+        // 查询替代料
+        var substitutes = await _substituteRepo
+            .FindAsync(s => s.OriginalPartId == primaryPart.Id && s.Status == 1)
+            .ToListAsync();
+            
+        foreach (var sub in substitutes)
+        {
+            var subQty = await GetAvailableQty(sub.SubstitutePartId);
+            if (subQty >= bomItem.RequiredQty)
+            {
+                // 推荐替代料，标记 SubstituteFlag=1
+                break;
+            }
+        }
+    }
+}
+7. FIFO 选取未考虑「多库位」场景（P1）
+当前 FIFO 查询只针对单个 LocationId：
+
+sql
+-- 当前
+SELECT * FROM InventoryLot 
+WHERE PartId = @partId AND LocationId = @locationId AND Status = 1
+ORDER BY ReceiptDate ASC LIMIT 1;
+增强建议： 如果同一部品分布多个库位，应跨库位按 ReceiptDate 全局排序：
+
+sql
+SELECT * FROM InventoryLot 
+WHERE PartId = @partId AND Status = 1 AND (ExpiryDate IS NULL OR ExpiryDate > NOW())
+ORDER BY ReceiptDate ASC LIMIT 1;
+8. 上线确认缺少「批次拆分量」校验（P1）
+当前设计：一次上线确认数量 LoadedQty 可以等于批次数量或部分数量
+
+建议增加： 如果 LoadedQty < 批次数量，系统自动拆分批次：
+
+csharp
+// 上线时
+if (loadedQty < lot.Quantity)
+{
+    // 拆分批次：创建新批次 (剩余数量)
+    var remainingLot = lot.Clone();
+    remainingLot.Quantity = lot.Quantity - loadedQty;
+    remainingLot.Status = 1; // 可用
+    
+    // 当前批次 Quantity = loadedQty
+    lot.Quantity = loadedQty;
+    
+    // 当前批次出库
+}
+三、API 设计问题
+9. 备料单生成接口缺少 forceRegenerate 参数（P1）
+json
+POST /api/v1/prep/generate
+{
+  "productionOrderId": 1001,
+  "forceRegenerate": false  // 🆕 true: 重新生成并覆盖已有备料单
+}
+10. 缺少「备料单重新计算」接口（P2）
+当 BOM 变更时，需要重新计算备料单需求：
+
+http
+POST /api/v1/prep/{orderId}/recalculate
+四、Android 端问题
+11. 离线缓存未覆盖「部品主数据」（P1）
+当前 Room 缓存：备料单数据、扫码记录
+
+建议增加： 部品主数据缓存（减少网络请求，提升扫码速度）
+
+kotlin
+// PartDao.kt
+@Dao
+interface PartDao {
+    @Query("SELECT * FROM parts WHERE partNo LIKE '%' || :keyword || '%'")
+    suspend fun searchParts(keyword: String): List<PartEntity>
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertParts(parts: List<PartEntity>)
+}
+12. 扫码界面缺少「手动输入」兜底（P1）
+当摄像头扫码失败时，操作员应能手动输入条码：
+
+kotlin
+// ScanScreen.kt
+@Composable
+fun ManualInputDialog(
+    onConfirm: (String) -> Unit
+) {
+    var barcode by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        title = { Text("手动输入条码") },
+        text = {
+            OutlinedTextField(
+                value = barcode,
+                onValueChange = { barcode = it },
+                label = { Text("请输入条码") }
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(barcode) }) {
+                Text("确认")
+            }
+        }
+    )
+}
+五、性能与可靠性问题
+13. Inventory 汇总表更新「热点行」性能（P1）
+高并发场景下，同一 (PartId, LocationId) 的 Inventory 行会成为热点（大量并发 UPDATE）。
+
+优化方案：
+
+批量合并更新： 将 10 笔备料操作合并为 1 次 Inventory 更新（使用内存队列聚合）
+
+异步更新： 备料操作成功后，Inventory 更新放入消息队列异步执行
+
+Redis 预热： 高频查询的库存数据预热到 Redis
+
+14. 缺少「数据迁移脚本」版本管理（P2）
+建议使用 EF Core Migration 管理数据库变更：
+
+bash
+dotnet ef migrations add InitialCreate
+dotnet ef migrations add AddPartIdToInventoryLot
+dotnet ef database update
+六、安全与审计问题
+15. 操作日志缺少「敏感字段脱敏」配置（P1）
+SystemLog 的 OldValue/NewValue 是 JSON 字段，可能包含敏感数据。
+
+建议： 标记脱敏字段：
+
+csharp
+[AttributeUsage(AttributeTargets.Property)]
+public class SensitiveAttribute : Attribute { }
+
+// 使用时
+public class User {
+    [Sensitive]
+    public string PasswordHash { get; set; }
+}
+
+// 序列化时自动脱敏
+var sanitized = JsonSerializer.Serialize(oldValue, new JsonSerializerOptions {
+    Converters = { new SensitiveDataConverter() }
+});
+📋 修复优先级总结
+优先级	问题编号	问题描述	影响范围
+P0	#1	InventoryLot 缺少 PartId 冗余字段	性能
+P1	#2	PrepDetail 缺少 ActualQty 累计校验	数据一致性
+P1	#3	OnlineConfirm 缺少 LocationId 外键	数据完整性
+P1	#5	上料流程缺少库位容量校验	业务流程
+P1	#6	备料单生成未考虑替代料自动匹配	业务流程
+P1	#7	FIFO 未考虑跨库位场景	业务流程
+P1	#8	上线确认缺少批次拆分逻辑	业务流程
+P1	#11	离线缓存未覆盖部品主数据	性能
+P2	#4	PartSubstitute 缺少替代原因字段	扩展性
+P2	#9	备料单生成缺少 forceRegenerate	扩展性
+P2	#10	缺少备料单重新计算接口	扩展性
+P2	#12	扫码界面缺少手动输入兜底	用户体验
+P2	#13	Inventory 热点行更新性能	性能
+P2	#14	缺少数据迁移脚本版本管理	运维
+P2	#15	操作日志缺少敏感字段脱敏	安全
+✅ 确认结论
+文档整体质量：优秀 ⭐⭐⭐⭐⭐
+
+除上述问题外，该文档可以作为开发实施的基础。建议：
+
+立即修复 P0/P1 问题（数据模型、核心业务流程）
+
+P2 问题可迭代优化（扩展性、性能、安全）
+
+补充「开发实施计划」（分阶段交付清单）
+---
+
+## 修复记录 v3.1（2026-07-05）
+
+评审意见全部修复，详见 spec 文档中标记的修复项：
+
+| # | 优先级 | 修复项 | 状态 |
+|---|---|---|---|
+| 1 | P0 | InventoryLot PartId冗余注解 | ✅ 已修复 L557 |
+| 2 | P1 | PrepDetail CHECK约束 | ✅ 已修复 L729 |
+| 3 | P1 | OnlineConfirm SourceLocationId外键 | ✅ 已确认 L763 |
+| 4 | P2 | PartSubstitute SubstituteReason字段 | ✅ 已修复 L647 |
+| 5 | P1 | 上料容量校验 | ✅ 已修复 L969 |
+| 6 | P1 | 替代料自动匹配 | ✅ 已修复 L1036 |
+| 7 | P1 | FIFO跨库位 | ✅ 已修复 L2123 |
+| 8 | P1 | 上线批次拆分 | ✅ 已修复 L1190 |
+| 9 | P2 | 备料单forceRegenerate | ✅ 已修复 L1502 |
+| 10 | P2 | 备料单重新计算API | ✅ 已修复 L1488 |
+| 11 | P1 | 离线部品主数据缓存 | ✅ 已修复 L1844 |
+| 12 | P2 | 手动输入兜底增强 | ✅ 已修复 L1545 |
+| 13 | P2 | Inventory热点行优化 | ✅ 已修复 L2086 |
+| 14 | P2 | 数据迁移版本管理 | ✅ 已修复 L2309 |
+| 15 | P2 | 敏感字段脱敏 | ✅ 已修复 L1976 |

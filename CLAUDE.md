@@ -389,3 +389,9 @@ dotnet publish -c Release --self-contained -r win-x64
 - `scan-msg-color-explicit-flag.md` — 消息颜色用显式标志不用关键词匹配
 - `broadcast-scan-textfield-pattern.md` — 广播模式扫码组件模式
 - `wizard-no-fallback-bypass.md` — 步骤向导校验不留兜底分支
+
+**扫码 OK/NG 音效升级（醒目化）：**
+- ok.wav 改为升调两音 ding-ding（1318→1760Hz，正弦+二次谐波，明亮悦耳=对）；ng.wav 改为三连降调（660→494→330Hz，E5→B4→E4，陡方波含7次谐波，最狠警报=错）。
+- 设计："升=对 / 降=错"音频语法 + 陡方波高 RMS 使 NG 比 OK 更刺、更狠、更醒目；5ms 软起音+指数衰减防爆音。纯标准库生成（`gen_scan_sounds.py`），旧音效备份于 scan-sound-backup/。
+- ScanSoundManager 注释同步更新；播放仍走 USAGE_ALARM 闹钟通道最大音量。
+- 移除扫码调试页 `DebugScanScreen`（首页入口与 debug_scan 路由一并撤销，诊断已完成）。

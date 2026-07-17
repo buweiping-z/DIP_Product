@@ -25,7 +25,6 @@ import com.dip.material.ui.return_.ReturnScreen
 import com.dip.material.ui.online.OnlineScreen
 import com.dip.material.ui.substitute.SubstituteScreen
 import com.dip.material.ui.outbound.OutboundScreen
-import com.dip.material.ui.debug.DebugScanScreen
 import com.dip.material.data.network.RetrofitClient
 import com.dip.material.utils.PreferencesManager
 import com.dip.material.utils.ScanBroadcastReceiver
@@ -104,7 +103,6 @@ fun AppNavHost() {
             onNavigateToOnline = { navController.navigate("online") },
             onNavigateToSubstitute = { navController.navigate("substitute") },
             onNavigateToOutbound = { navController.navigate("outbound") },
-            onNavigateToDebug = { navController.navigate("debug_scan") },
             onLogout = {
                 scope.launch {
                     prefs.clearTokens()
@@ -120,6 +118,5 @@ fun AppNavHost() {
         composable("online") { OnlineScreen(onBack = { navController.popBackStack() }) }
         composable("substitute") { SubstituteScreen(onBack = { navController.popBackStack() }) }
         composable("outbound") { OutboundScreen(onBack = { navController.popBackStack() }) }
-        composable("debug_scan") { DebugScanScreen(onBack = { navController.popBackStack() }) }
     }
 }

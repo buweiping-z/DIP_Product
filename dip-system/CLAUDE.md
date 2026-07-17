@@ -94,3 +94,29 @@ npm run dev
 2. **JsonElement 陷阱**：`[FromBody] Dictionary<string,object?>` 的 value 是 JsonElement
 3. **路由对齐**：所有路由必须与 Python 原版完全一致
 4. **响应格式对齐**：字段名、嵌套结构、分页格式必须与原版一致
+
+## 修改履历
+
+### 2026-07-17 — 多产品合并订单 + 库存排序分页导出
+
+**多产品合并订单：**
+- 新增 `order_products` 表，解除 1订单=1产品 限制
+- 新建订单支持多产品选择（模糊搜索 + 批量添加表格 + 各自计划数量）
+- 按 BOM 料号集合自动分组：同组合并为一个订单，不同组拆分
+- 编辑时 BOM 分组一致性校验（前后端双重），`/` 分隔符
+- 冻结：先创建再冻结，缺料标记待补货，不阻塞订单创建
+- 新建弹窗实时合并 BOM 清单预览
+
+**库存管理页面：**
+- 表头点击排序（料号/库位/总数量/可用/冻结）
+- 每页 50 条 + 翻页控件 + 总记录数
+- 数据导出 Excel（带当前筛选条件）
+
+**修复的 Bug：**
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 新建订单报错后订单残留 | CreateSingleOrder 在 Refreeze 前 SaveChanges | FreezeCoreAsync 加 try/catch 兜底 |
+| 2 | 所有订单冻结量为 0 | FreezeCoreAsync 无容错，一条失败中断循环 | 逐条 try/catch |
+| 3 | order_products 表不存在 | EnsureCreated 不建新表 | CREATE TABLE IF NOT EXISTS |
+| 4 | 编辑弹窗 BOM 有时无数据 | GetBomStatusAsync 用拼接 ProductName 匹配 | 查 order_products + 合并 BOM |
+| 5 | 库存排序是数字序非字母序 | QueryAsync 按 PartId 排序 | JOIN 后按字符串排序 |

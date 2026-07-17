@@ -24,7 +24,6 @@ fun HomeScreen(
     onNavigateToOnline: () -> Unit,
     onNavigateToSubstitute: () -> Unit,
     onNavigateToOutbound: () -> Unit,
-    onNavigateToDebug: () -> Unit,
     onLogout: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
@@ -101,10 +100,6 @@ fun HomeScreen(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FuncCard("出库", Icons.Default.ExitToApp, Modifier.weight(1f), onClick = onNavigateToOutbound)
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onNavigateToDebug, modifier = Modifier.fillMaxWidth()) {
-                Text("扫码调试（诊断广播）")
             }
         }
     }
