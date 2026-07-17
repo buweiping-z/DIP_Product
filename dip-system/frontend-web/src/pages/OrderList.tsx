@@ -421,6 +421,25 @@ export default function OrderList() {
               <div><span className="text-gray-500 text-sm">客户订单号</span><p>{detailData.customer_order_no || '-'}</p></div>
             </div>
 
+            {/* Order Products */}
+            {detailData.order_products && detailData.order_products.length > 0 && (
+              <>
+                <h3 className="font-medium mb-2">产品明细</h3>
+                <table className="w-full border text-sm mb-4">
+                  <thead><tr className="bg-gray-100">
+                    <th className="p-2 text-left">产品名称</th>
+                    <th className="p-2 text-right">计划数量</th>
+                  </tr></thead>
+                  <tbody>{detailData.order_products.map((op: any, idx: number) => (
+                    <tr key={idx} className="border-t">
+                      <td className="p-2">{op.product_name}</td>
+                      <td className="p-2 text-right">{op.plan_qty}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </>
+            )}
+
             {/* BOM Items */}
             <h3 className="font-medium mb-2">BOM 物料清单</h3>
             {(detailData.bom_items || []).length > 0 ? (
