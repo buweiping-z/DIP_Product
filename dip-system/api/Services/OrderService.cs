@@ -631,21 +631,58 @@ public class OrderService
     {
         var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null) throw AppException.NotFound($"订单 {orderId} 不存在");
-        var boms = await _db.ProductBoms.Where(b => b.ProductName == order.ProductName).ToListAsync();
+
+        // 从 order_products 获取实际产品名 → 兼容单产品和多产品订单
+        var orderProducts = await _db.OrderProducts
+            .Where(op => op.OrderId == orderId).ToListAsync();
+        var productNames = orderProducts.Any()
+            ? orderProducts.Select(op => op.ProductName).Distinct().ToList()
+            : new List<string> { order.ProductName };  // fallback: 旧订单没有 order_products
+
+        // 按产品名加载 BOM，按 part_no 合并
+        var allBoms = await _db.ProductBoms
+            .Where(b => productNames.Contains(b.ProductName))
+            .ToListAsync();
+        var productPlanMap = orderProducts.Any()
+            ? orderProducts.ToDictionary(op => op.ProductName, op => op.PlanQty)
+            : new Dictionary<string, decimal> { [order.ProductName] = order.PlanQty };
+
+        // 合并 BOM: part_id → total_required_qty
+        var merged = new Dictionary<long, decimal>();
+        foreach (var bom in allBoms)
+        {
+            var planQty = productPlanMap.TryGetValue(bom.ProductName, out var q) ? q : order.PlanQty;
+            var req = bom.Quantity * planQty;
+            merged[bom.PartId] = merged.GetValueOrDefault(bom.PartId) + req;
+        }
+
+        // 关联 part_no
+        var partIds = merged.Keys.ToList();
+        var partsMap = (await _db.Parts.Where(p => partIds.Contains(p.Id)).ToListAsync())
+            .ToDictionary(p => p.Id, p => p.PartNo);
+
+        // 已冻结量
         var prepDetails = await _db.PrepDetails
             .Where(d => d.PrepOrder != null && d.PrepOrder.ProductionOrderId == orderId).ToListAsync();
-        var detailByPart = prepDetails.GroupBy(d => d.PartId).ToDictionary(g => g.Key, g => g.Sum(x => x.ActualQty));
-        return boms.Select(b =>
+        var detailByPart = prepDetails.GroupBy(d => d.PartId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.ActualQty));
+
+        return merged.Select(kv =>
         {
-            var totalReq = b.Quantity * order.PlanQty;           // 总需求量
-            var frozen = detailByPart.GetValueOrDefault(b.PartId, 0m); // 已冻结量
-            var avail = _db.Inventories.Where(i => i.PartId == b.PartId).Sum(i => (decimal?)i.AvailableQty) ?? 0m; // 可用库存
-            var net = frozen + avail - totalReq;                 // 净库存 = 已冻结 + 可用 - 需求
+            var partId = kv.Key;
+            var totalReq = kv.Value;
+            var frozen = detailByPart.GetValueOrDefault(partId, 0m);
+            var avail = _db.Inventories.Where(i => i.PartId == partId).Sum(i => (decimal?)i.AvailableQty) ?? 0m;
+            var net = frozen + avail - totalReq;
             return (object)new
             {
-                part_id = b.PartId, part_no = b.PartNo,
-                quantity = b.Quantity, required_qty = totalReq,
-                frozen_qty = frozen, available_qty = avail, net,
+                part_id = partId,
+                part_no = partsMap.TryGetValue(partId, out var pno) ? pno : "",
+                quantity = 1,  // 合并后单台用量无意义，保留占位
+                required_qty = totalReq,
+                frozen_qty = frozen,
+                available_qty = avail,
+                net,
                 remaining = totalReq - frozen
             };
         }).ToList();
