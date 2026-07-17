@@ -44,6 +44,8 @@ public class ProductionOrder : BaseEntity
     public int Status { get; set; } = 1;
 
     public List<BomItem> BomItems { get; set; } = new();
+
+    public List<OrderProduct> OrderProducts { get; set; } = new();
 }
 
 /// <summary>
@@ -86,4 +88,25 @@ public class BomItem : BaseEntity
 
     [ForeignKey(nameof(PartId))]
     public Part? Part { get; set; }
+}
+
+/// <summary>
+/// 订单关联产品（多产品订单支持）
+/// </summary>
+public class OrderProduct : BaseEntity
+{
+    [Column("order_id")]
+    public long OrderId { get; set; }
+
+    [Column("product_id")]
+    public long ProductId { get; set; }
+
+    [Column("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [Column("plan_qty")]
+    public decimal PlanQty { get; set; }
+
+    [ForeignKey(nameof(OrderId))]
+    public ProductionOrder? Order { get; set; }
 }

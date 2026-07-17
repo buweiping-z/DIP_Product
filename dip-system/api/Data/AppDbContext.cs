@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     // ===== 订单 =====
     public DbSet<ProductionOrder> ProductionOrders { get; set; }
     public DbSet<BomItem> BomItems { get; set; }
+    public DbSet<OrderProduct> OrderProducts { get; set; }
 
     // ===== 备料 =====
     public DbSet<PrepOrder> PrepOrders { get; set; }
@@ -97,6 +98,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<InventoryLot>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ProductionOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<BomItem>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<OrderProduct>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<PrepOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<PrepDetail>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ShelvingBatch>().HasQueryFilter(e => !e.IsDeleted);
@@ -133,6 +135,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockMovement>(e => e.ToTable("stock_movements"));
         modelBuilder.Entity<ProductionOrder>(e => e.ToTable("production_orders"));
         modelBuilder.Entity<BomItem>(e => e.ToTable("bom_items"));
+        modelBuilder.Entity<OrderProduct>(e => e.ToTable("order_products"));
         modelBuilder.Entity<PrepOrder>(e => e.ToTable("prep_orders"));
         modelBuilder.Entity<PrepDetail>(e => e.ToTable("prep_details"));
         modelBuilder.Entity<PrepScanRecord>(e => e.ToTable("prep_scan_records"));
@@ -229,6 +232,12 @@ public class AppDbContext : DbContext
             .WithMany(o => o.Details)
             .HasForeignKey(e => e.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<OrderProduct>()
+            .HasOne(e => e.Order)
+            .WithMany(o => o.OrderProducts)
+            .HasForeignKey(e => e.OrderId)
+            .HasConstraintName("fk_order_products_order");
 
         // ===== RefreshToken 配置 =====
         modelBuilder.Entity<RefreshToken>(e =>
