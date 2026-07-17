@@ -5,6 +5,19 @@ import HelpButton from '../lib/HelpButton';
 
 const STATUS_MAP = ['', '待备料', '待上线', '已完成', '已取消'];
 
+interface ProductInfo {
+  product_id: number;
+  product_name: string;
+  bom_count: number;
+}
+
+interface SelectedProduct {
+  product_id: number;
+  product_name: string;
+  bom_count: number;
+  plan_qty: number;
+}
+
 export default function OrderList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -12,10 +25,13 @@ export default function OrderList() {
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const bomFileRef = useRef<HTMLInputElement>(null);
-  const [products, setProducts] = useState<string[]>([]);
+  const [products, setProducts] = useState<ProductInfo[]>([]);
   const [lines, setLines] = useState<any[]>([]);
   const [bomItems, setBomItems] = useState<any[]>([]);
   const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2 });
+  const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
   const [detailData, setDetailData] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
 
@@ -29,7 +45,7 @@ export default function OrderList() {
   const loadMeta = async () => {
     try {
       const [pRes, lRes] = await Promise.all([api.get('/orders/products'), api.get('/lines')]);
-      setProducts(pRes.data || []);
+      setProducts((pRes.data || []) as ProductInfo[]);
       setLines(lRes.data || []);
       return lRes.data || [];
     } catch { return []; }
@@ -38,6 +54,8 @@ export default function OrderList() {
   const openCreate = async () => {
     setEditId(null);
     setBomItems([]);
+    setSelectedProducts([]);
+    setProductSearch('');
     const loadedLines = await loadMeta();
     setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2 });
     setShowDialog(true);
@@ -45,12 +63,30 @@ export default function OrderList() {
 
   const openEdit = async (order: any) => {
     setEditId(order.id);
+    setSelectedProducts([]);
+    setProductSearch('');
     setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority });
-    await loadMeta();
-    // 加载订单维度的BOM状态（含冻结量+可用库存）
+
+    // 并行加载所有数据（用局部变量，避免 React state 闭包陷阱）
     try {
-      const res = await api.get(`/orders/${order.id}/bom-status`);
-      setBomItems((res.data || []).map((item: any) => ({ ...item, stock: item.net })));
+      const [pRes, lRes, bomRes, detailRes] = await Promise.all([
+        api.get('/orders/products'),
+        api.get('/lines'),
+        api.get(`/orders/${order.id}/bom-status`),
+        api.get(`/orders/${order.id}/details`)
+      ]);
+      setProducts((pRes.data || []) as ProductInfo[]);
+      setLines(lRes.data || []);
+      setBomItems((bomRes.data || []).map((item: any) => ({ ...item, stock: item.net })));
+
+      // 用局部变量 prods 而非 state，确保读到最新值
+      const prods = (pRes.data || []) as ProductInfo[];
+      const ops = detailRes.data?.order_products || [];
+      const enriched = ops.map((op: any) => {
+        const prod = prods.find((p: ProductInfo) => p.product_name === op.product_name);
+        return { ...op, bom_count: prod?.bom_count || 0 };
+      });
+      setSelectedProducts(enriched);
     } catch { setBomItems([]); }
     setShowDialog(true);
   };
@@ -64,16 +100,73 @@ export default function OrderList() {
     } catch { setBomItems([]); }
   };
 
+  // 模糊搜索过滤
+  const filteredProducts = products.filter(p =>
+    p.product_name.toLowerCase().includes(productSearch.toLowerCase()) ||
+    (p.bom_count !== undefined && p.product_name.includes(productSearch))
+  );
+
+  // 添加产品到表格
+  const addProduct = (prod: ProductInfo) => {
+    if (selectedProducts.some(sp => sp.product_name === prod.product_name)) return; // 已存在
+    setSelectedProducts([...selectedProducts, {
+      product_id: prod.product_id,
+      product_name: prod.product_name,
+      bom_count: prod.bom_count,
+      plan_qty: 1
+    }]);
+    setProductSearch('');
+    setShowDropdown(false);
+  };
+
+  // 删除已选产品
+  const removeProduct = (idx: number) => {
+    setSelectedProducts(selectedProducts.filter((_, i) => i !== idx));
+  };
+
+  // 修改计划数量
+  const updatePlanQty = (idx: number, qty: number) => {
+    const updated = [...selectedProducts];
+    updated[idx] = { ...updated[idx], plan_qty: qty };
+    setSelectedProducts(updated);
+  };
+
+  // 按 bom_count 分组预览（同 bom_count 的为一组）
+  const groupPreview = (() => {
+    const groups = new Map<number, SelectedProduct[]>();
+    selectedProducts.forEach(sp => {
+      const key = sp.bom_count;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(sp);
+    });
+    return Array.from(groups.entries());
+  })();
+
+  // 编辑模式下的 BOM 一致性检测
+  const allSameBomCount = selectedProducts.length <= 1
+    || new Set(selectedProducts.map(p => p.bom_count)).size === 1;
+
   const handleSubmit = async () => {
-    if (!form.product_name) return alert('请选择产品');
+    if (selectedProducts.length === 0) return alert('请至少选择一个产品');
+    if (editId && !allSameBomCount) return alert('编辑后的产品 BOM 不一致，请删除当前订单并重新创建');
+
     try {
-      const payload = { line_id: form.line_id, product_name: form.product_name, plan_qty: form.plan_qty, priority: form.priority };
+      const payload = {
+        line_id: form.line_id,
+        priority: form.priority,
+        products: selectedProducts.map(sp => ({
+          product_id: sp.product_id,
+          product_name: sp.product_name,
+          plan_qty: sp.plan_qty
+        }))
+      };
       if (editId) {
         await api.put(`/orders/${editId}`, payload);
         showToast('订单更新成功', 'success');
       } else {
-        await api.post('/orders', payload);
-        showToast('订单创建成功！系统已自动生成备料单', 'success');
+        const res = await api.post('/orders', payload);
+        const total = res.data?.total || 1;
+        showToast(`订单创建成功！已生成 ${total} 个订单`, 'success');
       }
       setShowDialog(false);
       fetchData();
@@ -166,19 +259,6 @@ export default function OrderList() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">产品名称</label>
-                <select className="w-full border p-2 rounded" value={form.product_name}
-                  onChange={e => onProductChange(e.target.value)}>
-                  <option value="">-- 请选择 --</option>
-                  {products.map((p: string) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">计划数量</label>
-                <input type="number" className="w-full border p-2 rounded" min={1} value={form.plan_qty}
-                  onChange={e => setForm({ ...form, plan_qty: Number(e.target.value) })} />
-              </div>
-              <div>
                 <label className="block text-sm font-medium mb-1">优先级</label>
                 <select className="w-full border p-2 rounded" value={form.priority}
                   onChange={e => setForm({ ...form, priority: Number(e.target.value) })}>
@@ -187,37 +267,124 @@ export default function OrderList() {
               </div>
             </div>
 
-            {bomItems.length > 0 && (
+            {/* 产品搜索栏 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">搜索产品</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="w-full border p-2 rounded"
+                  placeholder="输入产品名称模糊搜索..."
+                  value={productSearch}
+                  onChange={e => { setProductSearch(e.target.value); setShowDropdown(true); }}
+                  onFocus={() => setShowDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                />
+                {showDropdown && productSearch && (
+                  <div className="absolute z-10 w-full bg-white border rounded-b shadow-lg max-h-48 overflow-auto">
+                    {filteredProducts.length === 0 ? (
+                      <div className="p-2 text-gray-400 text-sm">无匹配产品</div>
+                    ) : (
+                      filteredProducts.map(p => (
+                        <div
+                          key={p.product_name}
+                          className={`px-3 py-2 cursor-pointer hover:bg-blue-50 flex justify-between ${
+                            p.bom_count === 0 ? 'text-gray-300 cursor-not-allowed' : ''
+                          } ${selectedProducts.some(sp => sp.product_name === p.product_name) ? 'bg-green-50' : ''}`}
+                          onMouseDown={() => { if (p.bom_count > 0) addProduct(p); }}
+                        >
+                          <span>{p.product_name}</span>
+                          <span className="text-xs text-gray-400">
+                            {p.bom_count === 0 ? '无BOM' : `${p.bom_count} 种料号`}
+                            {selectedProducts.some(sp => sp.product_name === p.product_name) && ' ✓'}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 已选产品表格 */}
+            {selectedProducts.length > 0 && (
+              <div className="mb-4">
+                <h3 className="font-medium mb-2">已选产品</h3>
+                <table className="w-full border text-sm">
+                  <thead><tr className="bg-gray-100">
+                    <th className="p-2 text-left">产品</th>
+                    <th className="p-2 text-center">BOM料号数</th>
+                    <th className="p-2 text-right">计划数量</th>
+                    <th className="p-2 text-center">操作</th>
+                  </tr></thead>
+                  <tbody>
+                    {selectedProducts.map((sp, idx) => (
+                      <tr key={idx} className={`border-t ${editId && !allSameBomCount && sp.bom_count !== selectedProducts[0]?.bom_count ? 'bg-red-50' : ''}`}>
+                        <td className="p-2">{sp.product_name}</td>
+                        <td className="p-2 text-center">{sp.bom_count}</td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            className="w-20 border p-1 rounded text-right"
+                            min={1}
+                            value={sp.plan_qty}
+                            onChange={e => updatePlanQty(idx, Number(e.target.value) || 1)}
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <button onClick={() => removeProduct(idx)}
+                            className="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* 分组预览 */}
+            {selectedProducts.length > 0 && (
+              <div className="mb-4 p-3 bg-gray-50 rounded text-sm">
+                {editId && !allSameBomCount ? (
+                  <p className="text-red-600 font-medium">⚠ 编辑后的产品 BOM 不一致，请删除当前订单并重新创建</p>
+                ) : (
+                  <p className="text-gray-600">
+                    将生成 <strong>{groupPreview.length}</strong> 个订单：
+                    {groupPreview.map(([bomCount, prods], gi) => (
+                      <span key={gi}>
+                        {gi > 0 && '；'}
+                        订单{gi + 1}: {prods.map(p => p.product_name).join(' / ')}
+                        {groupPreview.length > 1 && `（${bomCount}种料号）`}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 编辑模式展示已有 BOM 状态 */}
+            {editId && bomItems.length > 0 && (
               <div className="mb-4">
                 <h3 className="font-medium mb-2">BOM 物料清单</h3>
                 <table className="w-full border text-sm">
                   <thead><tr className="bg-gray-100">
                     <th className="p-2 text-left">#</th><th className="p-2 text-left">料号</th>
                     <th className="p-2 text-right">总需求</th>
-                    {editId && <th className="p-2 text-right">已冻结</th>}
+                    <th className="p-2 text-right">已冻结</th>
                     <th className="p-2 text-right">可用库存</th>
                     <th className="p-2 text-center">状态</th>
                   </tr></thead>
-                  <tbody>{bomItems.map((item: any, idx: number) => {
-                    const totalNeed = editId ? (item.required_qty || 0) : (item.quantity * form.plan_qty);
-                    const frozen = item.frozen_qty || 0;
-                    const avail = editId ? (item.available_qty || 0) : (item.stock || 0);
-                    const net = editId ? (item.net || 0) : (avail - totalNeed);
-                    const isEdit = !!editId;
-                    return (
-                      <tr key={idx} className={`border-t ${net < 0 ? 'bg-red-50' : ''}`}>
-                        <td className="p-2">{idx + 1}</td><td className="p-2 font-mono">{item.part_no}</td>
-                        <td className="p-2 text-right">{totalNeed}</td>
-                        {isEdit && <td className="p-2 text-right text-blue-600">{frozen}</td>}
-                        <td className="p-2 text-right">{avail}</td>
-                        <td className={`p-2 text-center text-xs ${net >= 0 ? 'text-green-600' : 'text-red-600 font-medium'}`}>
-                          {isEdit
-                            ? (net >= 0 ? '充足' : `缺 ${Math.abs(net)}`)
-                            : (avail >= totalNeed ? '充足' : `缺 ${totalNeed - avail}`)}
-                        </td>
-                      </tr>
-                    );
-                  })}</tbody>
+                  <tbody>{bomItems.map((item: any, idx: number) => (
+                    <tr key={idx} className={`border-t ${(item.net || 0) < 0 ? 'bg-red-50' : ''}`}>
+                      <td className="p-2">{idx + 1}</td><td className="p-2 font-mono">{item.part_no}</td>
+                      <td className="p-2 text-right">{item.required_qty || 0}</td>
+                      <td className="p-2 text-right text-blue-600">{item.frozen_qty || 0}</td>
+                      <td className="p-2 text-right">{item.available_qty || 0}</td>
+                      <td className={`p-2 text-center text-xs ${(item.net || 0) >= 0 ? 'text-green-600' : 'text-red-600 font-medium'}`}>
+                        {(item.net || 0) >= 0 ? '充足' : `缺 ${Math.abs(item.net)}`}
+                      </td>
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
             )}
