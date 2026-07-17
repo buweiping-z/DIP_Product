@@ -327,8 +327,20 @@ public class OrderService
         }).ToList();
     }
 
-    public async Task<List<string>> GetProductNamesAsync()
-        => await _db.ProductBoms.Select(b => b.ProductName).Distinct().ToListAsync();
+    public async Task<List<object>> GetProductNamesAsync()
+    {
+        var boms = await _db.ProductBoms.ToListAsync();
+        return boms
+            .GroupBy(b => new { b.ProductName, b.PartId })
+            .GroupBy(g => g.Key.ProductName)
+            .Select(g => (object)new
+            {
+                product_name = g.Key,
+                product_id = g.First().First().PartId,
+                bom_count = g.Count()
+            })
+            .ToList();
+    }
 
     public async Task<List<object>> GetBomStatusAsync(long orderId)
     {
