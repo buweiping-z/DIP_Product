@@ -85,6 +85,13 @@ export default function UserList() {
     try { await api.delete(`/users/${id}`); fetchData(); } catch {}
   };
 
+  const handleClearData = async () => {
+    try {
+      await api.post('/system/clear-data');
+      showToast('业务数据已清空，基础数据已保留', 'success');
+    } catch {}
+  };
+
   const handleResetPwd = async (id: number) => {
     const pwd = prompt('请输入新密码（至少4位）：');
     if (!pwd) return;
@@ -108,7 +115,11 @@ export default function UserList() {
         <h1 className="text-2xl font-bold">用户管理</h1>
         <div className="flex gap-2">
           {isManager && (
-            <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建用户</button>
+            <>
+              <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建用户</button>
+              <button onClick={() => { if (confirm('⚠️ 确定要清空所有业务数据吗？\n\n此操作将删除：\n• 所有订单及备料单\n• 上架/上线/退料/移库/出库记录\n• 替代料/盘点/异常记录\n• 扫码记录和系统日志\n\n保留：零件、库位、产线、工位、用户、角色、库存、BOM模板\n\n此操作不可恢复！')) { handleClearData(); } }}
+                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">清空业务数据</button>
+            </>
           )}
           <button onClick={() => { setPwdForm({ old_password: '', new_password: '', confirm_password: '' }); setShowPwdDialog(true); }}
             className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">修改密码</button>
