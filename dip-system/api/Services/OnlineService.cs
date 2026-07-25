@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
 using DIP.Api.Models;
@@ -7,8 +8,9 @@ namespace DIP.Api.Services;
 public class OnlineService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public OnlineService(AppDbContext db) { _db = db; }
+    public OnlineService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     public async Task<object> ConfirmAsync(long detailId, string barcode, decimal reqQty,
         long? stationId, long? equipmentId, long operatorId)
@@ -60,7 +62,7 @@ public class OnlineService
             {
                 Console.WriteLine($"[Online] 订单 {order.OrderNo} → 已完成，开始扣减冻结库存");
                 // 订单完成 → 将所有冻结库存一次性扣减（FrozenQty → 0，TotalQty 同步减少）
-                var invSvc = new InventoryService(_db);
+                var invSvc = _sp.GetRequiredService<InventoryService>();
                 var partIds = allDetails.Select(d => d.PartId).Distinct().ToList();
                 foreach (var partId in partIds)
                 {

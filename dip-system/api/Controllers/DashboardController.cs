@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DIP.Api.Models;
 using DIP.Api.Services;
@@ -5,6 +6,7 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/dashboard")]
 public class DashboardController : ControllerBase
 {

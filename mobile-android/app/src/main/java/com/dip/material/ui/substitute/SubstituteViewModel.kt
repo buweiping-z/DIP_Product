@@ -26,7 +26,9 @@ data class SubstituteUiState(
     val matchedDetail: SubstituteDetailItem? = null,
     // 匹配到多条时的候选列表
     val matchCandidates: List<SubstituteDetailItem> = emptyList(),
-    val showCandidates: Boolean = false
+    val showCandidates: Boolean = false,
+    // 步骤2：替代料号匹配后等待扫目标库位
+    val scanningLocation: Boolean = false
 ) {
     // 实时计算已确认数和总数
     val confirmedCount: Int get() = selectedOrder?.details?.count { it.status == 2 } ?: 0
@@ -61,7 +63,8 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
                     if (res.code == 0 && res.data != null) {
                         val done = res.data.details.all { it.status == 2 }
                         _state.update { it.copy(selectedOrder = res.data, allDone = done,
-                            matchedDetail = null, matchCandidates = emptyList(), showCandidates = false) }
+                            matchedDetail = null, matchCandidates = emptyList(), showCandidates = false,
+                            scanningLocation = false) }
                     }
                 },
                 onFailure = {}
@@ -69,6 +72,7 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /** 步骤1：扫替代料号（>14位） */
     fun scanBarcode(barcode: String) {
         val trimmed = barcode.trim()
         val detailList = _state.value.selectedOrder?.details ?: return
@@ -96,12 +100,13 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
                     scanEventId = it.scanEventId + 1, lastScanOk = false) }
             }
             matches.size == 1 -> {
-                // 唯一匹配，自动选中
+                // 唯一匹配 → 锁定明细，进入扫库位步骤
                 val m = matches.first()
                 ScanSoundManager.playSuccess()
                 _state.update { it.copy(
                     matchedDetail = m, matchCandidates = emptyList(), showCandidates = false,
-                    scanMsg = "匹配: ${m.substitutePartNo} ← ${m.originalPartNo}",
+                    scanningLocation = true,
+                    scanMsg = "料号匹配: ${m.substitutePartNo}，请扫目标库位 ${m.targetLocationCode}",
                     scanEventId = it.scanEventId + 1, lastScanOk = true) }
             }
             else -> {
@@ -115,18 +120,37 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /** 步骤2：扫目标库位 — 必须匹配明细的 targetLocationCode */
+    fun scanLocation(barcode: String) {
+        val detail = _state.value.matchedDetail ?: return
+        val trimmed = barcode.trim()
+
+        if (!trimmed.equals(detail.targetLocationCode.trim(), ignoreCase = true)) {
+            ScanSoundManager.playError()
+            _state.update { it.copy(
+                scanMsg = "库位不匹配: $trimmed，需要: ${detail.targetLocationCode}",
+                scanEventId = it.scanEventId + 1, lastScanOk = false) }
+            return
+        }
+
+        // 库位匹配 → 自动确认该明细
+        ScanSoundManager.playSuccess()
+        confirmDetail(detail)
+    }
+
     fun selectCandidate(detail: SubstituteDetailItem) {
         _state.update { it.copy(
             matchedDetail = detail, matchCandidates = emptyList(), showCandidates = false,
-            scanMsg = "匹配: ${detail.substitutePartNo} ← ${detail.originalPartNo}") }
+            scanningLocation = true,
+            scanMsg = "料号匹配: ${detail.substitutePartNo}，请扫目标库位 ${detail.targetLocationCode}") }
     }
 
     fun cancelCurrentMatch() {
-        _state.update { it.copy(matchedDetail = null, matchCandidates = emptyList(), showCandidates = false, scanMsg = null) }
+        _state.update { it.copy(matchedDetail = null, matchCandidates = emptyList(),
+            showCandidates = false, scanningLocation = false, scanMsg = null) }
     }
 
-    fun confirmDetail() {
-        val detail = _state.value.matchedDetail ?: return
+    private fun confirmDetail(detail: SubstituteDetailItem) {
         val orderId = _state.value.selectedOrder?.orderId ?: return
 
         viewModelScope.launch {
@@ -134,7 +158,6 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
             repo.confirmSubstituteDetail(orderId, detail.id).fold(
                 onSuccess = { res ->
                     if (res.code == 0) {
-                        ScanSoundManager.playSuccess()
                         // 更新本地明细状态
                         val updatedDetails = _state.value.selectedOrder?.details?.map {
                             if (it.id == detail.id) it.copy(status = 2) else it
@@ -142,8 +165,8 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
                         val updatedOrder = _state.value.selectedOrder?.copy(details = updatedDetails)
                         val allDone = updatedDetails.all { it.status == 2 }
                         _state.update { it.copy(isLoading = false, selectedOrder = updatedOrder,
-                            matchedDetail = null, allDone = allDone,
-                            scanMsg = "✓ 确认成功: ${detail.substitutePartNo}",
+                            matchedDetail = null, scanningLocation = false, allDone = allDone,
+                            scanMsg = "✓ 确认成功: ${detail.substitutePartNo} → ${detail.targetLocationCode}",
                             scanEventId = it.scanEventId + 1, lastScanOk = true) }
                     } else {
                         ScanSoundManager.playError()
@@ -172,7 +195,6 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
                         _state.update { it.copy(isLoading = false,
                             scanMsg = "移库完成！",
                             scanEventId = it.scanEventId + 1, lastScanOk = true) }
-                        // 短暂显示"移库完成"后自动退出到订单列表
                         kotlinx.coroutines.delay(800)
                         clearSelection()
                     } else {
@@ -192,7 +214,8 @@ class SubstituteViewModel(application: Application) : AndroidViewModel(applicati
 
     fun clearSelection() {
         _state.update { it.copy(selectedOrder = null, allDone = false,
-            matchedDetail = null, matchCandidates = emptyList(), showCandidates = false, scanMsg = null) }
+            matchedDetail = null, matchCandidates = emptyList(), showCandidates = false,
+            scanningLocation = false, scanMsg = null) }
         viewModelScope.launch { loadOrders() }
     }
 

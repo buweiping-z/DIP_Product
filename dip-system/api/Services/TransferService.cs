@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
 using DIP.Api.Models;
@@ -7,8 +8,9 @@ namespace DIP.Api.Services;
 public class TransferService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public TransferService(AppDbContext db) { _db = db; }
+    public TransferService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     public async Task<object> CreateAsync(Dictionary<string, object?> data, long operatorId)
     {
@@ -54,7 +56,7 @@ public class TransferService
         var order = await _db.TransferOrders.FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null || order.Status != 1) throw AppException.Business("调拨单状态不允许执行");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var items = await _db.TransferOrderItems.Where(i => i.TransferOrderId == orderId).ToListAsync();
         foreach (var item in items)
         {

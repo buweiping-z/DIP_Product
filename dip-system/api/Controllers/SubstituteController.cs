@@ -54,6 +54,13 @@ public class SubstituteController : ControllerBase
     [HttpPost("{id}/confirm")]
     public async Task<IActionResult> ConfirmAll(long id)
         => Ok(ApiResponse.Ok(await _svc.ConfirmAllAsync(id, GetUserId()), "移库完成"));
+
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? search)
+    {
+        var bytes = await _svc.ExportAsync(search);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "substitute_export.xlsx");
+    }
 }
 
 public class CreateSubstituteOrderRequest

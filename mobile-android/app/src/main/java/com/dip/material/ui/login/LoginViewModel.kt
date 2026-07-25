@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dip.material.data.repository.AppRepository
 import com.dip.material.data.network.RetrofitClient
+import com.dip.material.data.network.TokenHolder
 import com.dip.material.utils.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,7 +16,7 @@ import kotlinx.coroutines.launch
 
 data class LoginUiState(
     val username: String = "", val password: String = "",
-    val savedUsername: String = "", val savedPassword: String = "",
+    val savedUsername: String = "",
     val isLoading: Boolean = false, val error: String? = null,
     val isLoggedIn: Boolean = false, val serverUrl: String = ""
 )
@@ -40,10 +41,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     fun loadCredentials() {
         viewModelScope.launch {
             val saved = prefs.token.first()
-            val savedPwd = prefs.savedPassword.first()
-            _state.update { it.copy(savedPassword = savedPwd) }
             if (saved.isNotBlank()) {
-                // Token exists, verify it
                 repo.getCurrentUser().fold(
                     onSuccess = { if (it.data != null) _state.update { s -> s.copy(isLoggedIn = true) } },
                     onFailure = {}
@@ -59,12 +57,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { res ->
                     if (res.code == 0 && res.data != null) {
                         val d = res.data
-                        prefs.saveTokens(d.accessToken, d.refreshToken)
+                        TokenHolder.save(d.accessToken, d.refreshToken)
                         prefs.saveUsername(username)
-                        prefs.savePassword(password)
                         _state.update { it.copy(isLoggedIn = true, isLoading = false) }
                     } else {
-                        prefs.savePassword("") // 登录失败清除旧密码，避免反复用错误密码
                         _state.update { it.copy(isLoading = false, error = res.message ?: "登录失败") }
                     }
                 },

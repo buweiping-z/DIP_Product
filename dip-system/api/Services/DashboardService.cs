@@ -81,6 +81,14 @@ public class DashboardService
             today = refillBatches.Count(b => b.today)
         };
 
+        // 途中切替统计
+        var changeoverBatches = await _db.ChangeoverBatches.Where(b => !b.IsDeleted).ToListAsync();
+        var changeoverStats = new {
+            active = changeoverBatches.Count(b => b.Status == 1),
+            done = changeoverBatches.Count(b => b.Status == 2),
+            today = changeoverBatches.Count(b => b.CreatedAt >= todayStart)
+        };
+
         return new
         {
             order_stats = orderStats,
@@ -88,7 +96,8 @@ public class DashboardService
             prep_rate = prepRate,
             inventory_alerts = inventoryAlerts,
             today_ops = todayOps,
-            refill_stats = refillStats
+            refill_stats = refillStats,
+            changeover_stats = changeoverStats
         };
     }
 

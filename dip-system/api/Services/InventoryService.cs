@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
@@ -23,8 +24,9 @@ public class FifoLotResult
 public class InventoryService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public InventoryService(AppDbContext db) { _db = db; }
+    public InventoryService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     // ===== Core Methods =====
 
@@ -458,20 +460,19 @@ public class InventoryService
 
     public async Task<List<object>> GetAvailableAsync(long partId)
     {
-        var invs = await _db.Inventories.Where(i => i.PartId == partId && i.AvailableQty >= 0).ToListAsync();
-        var result = new List<object>();
-        foreach (var i in invs)
-        {
-            var p = await _db.Parts.FirstOrDefaultAsync(pr => pr.Id == i.PartId);
-            var l = await _db.WarehouseLocations.FirstOrDefaultAsync(lc => lc.Id == i.LocationId);
-            result.Add(new
+        var result = await _db.Inventories
+            .Where(i => i.PartId == partId && i.AvailableQty >= 0)
+            .Join(_db.Parts, i => i.PartId, p => p.Id, (i, p) => new { i, p })
+            .Join(_db.WarehouseLocations, x => x.i.LocationId, l => l.Id, (x, l) => new { x.i, x.p, l })
+            .Select(x => new
             {
-                i.Id, part_id = i.PartId, part_no = p?.PartNo ?? "", part_name = p?.PartName ?? "",
-                location_id = i.LocationId, location_code = l?.LocationCode ?? "",
-                total_qty = i.TotalQty, available_qty = i.AvailableQty, frozen_qty = i.FrozenQty, inspecting_qty = i.InspectingQty
-            });
-        }
-        return result;
+                x.i.Id, part_id = x.i.PartId, part_no = x.p.PartNo, part_name = x.p.PartName,
+                location_id = x.i.LocationId, location_code = x.l.LocationCode,
+                total_qty = x.i.TotalQty, available_qty = x.i.AvailableQty, frozen_qty = x.i.FrozenQty, inspecting_qty = x.i.InspectingQty
+            })
+            .ToListAsync();
+
+        return result.Cast<object>().ToList();
     }
 
     public async Task<List<FifoLotResult>> GetFifoLotsAsync(long partId, decimal requiredQty)
@@ -556,7 +557,7 @@ public class InventoryService
         {
             await _db.SaveChangesAsync();
             // 导入后重新冻结活跃订单（新库存按先到先得分给待补货订单）
-            await new OrderService(_db).RefreezeActiveOrdersAsync(operatorId);
+            await _sp.GetRequiredService<OrderService>().RefreezeActiveOrdersAsync(operatorId);
         }
         return new { success_count = success, skip_count = skip, details };
     }
@@ -657,6 +658,25 @@ public class InventoryService
         if (r == null) throw AppException.NotFound($"移库记录 {recordId} 不存在");
         if (r.Status != 1) throw AppException.Business("仅待确认的记录可删除");
         _db.SubstituteRecords.Remove(r);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(long id)
+    {
+        var inv = await _db.Inventories.FirstOrDefaultAsync(i => i.Id == id)
+            ?? throw AppException.NotFound($"库存记录 {id} 不存在");
+        if (inv.FrozenQty > 0)
+            throw AppException.Business("该库存有冻结数量，请先取消关联订单后再删除");
+
+        // 软删除关联批次
+        var lots = await _db.InventoryLots.Where(l => l.InventoryId == id).ToListAsync();
+        foreach (var lot in lots) lot.IsDeleted = true;
+
+        // 更新库位计数器
+        var loc = await _db.WarehouseLocations.FirstOrDefaultAsync(l => l.Id == inv.LocationId);
+        if (loc != null) loc.CurrentQty -= inv.TotalQty;
+
+        inv.IsDeleted = true;
         await _db.SaveChangesAsync();
     }
 

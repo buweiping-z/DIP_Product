@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using ClosedXML.Excel;
 using DIP.Api.Data;
 using DIP.Api.Models;
 
@@ -7,7 +9,8 @@ namespace DIP.Api.Services;
 public class SubstituteService
 {
     private readonly AppDbContext _db;
-    public SubstituteService(AppDbContext db) { _db = db; }
+    private readonly IServiceProvider _sp;
+    public SubstituteService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     private string GenOrderNo()
     {
@@ -241,7 +244,7 @@ public class SubstituteService
         if (!allConfirmed)
             throw AppException.Business($"尚有 {details.Count(d => d.Status == 1)} 条明细未确认");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
 
         // 数据库事务：任何一条失败全部回滚
         using var tx = await _db.Database.BeginTransactionAsync();
@@ -268,9 +271,64 @@ public class SubstituteService
         }
 
         // 刷新订单冻结库存
-        await new OrderService(_db).RefreezeActiveOrdersAsync(operatorId);
+        await _sp.GetRequiredService<OrderService>().RefreezeActiveOrdersAsync(operatorId);
 
         return new { order_id = order.Id, status = 2, message = "移库完成" };
+    }
+
+    // ===== 导出 Excel =====
+
+    public async Task<byte[]> ExportAsync(string? search = null)
+    {
+        var query = _db.SubstituteOrders
+            .Include(o => o.Details)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            var s = search.ToLower();
+            query = query.Where(o => o.Details.Any(d =>
+                d.SubstitutePartNo.ToLower().Contains(s) ||
+                d.OriginalPartNo.ToLower().Contains(s)));
+        }
+
+        var orders = await query.OrderByDescending(o => o.Id).ToListAsync();
+
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("替代料移库明细");
+        // 表头
+        ws.Cell(1, 1).Value = "订单号";
+        ws.Cell(1, 2).Value = "订单状态";
+        ws.Cell(1, 3).Value = "替代料号";
+        ws.Cell(1, 4).Value = "来源库位";
+        ws.Cell(1, 5).Value = "缺料料号";
+        ws.Cell(1, 6).Value = "目标库位";
+        ws.Cell(1, 7).Value = "数量";
+        ws.Cell(1, 8).Value = "明细状态";
+        ws.Cell(1, 9).Value = "创建时间";
+
+        int row = 2;
+        var statusMap = new Dictionary<int, string> { { 1, "待确认" }, { 2, "已完成" }, { 3, "已取消" } };
+        foreach (var order in orders)
+        {
+            foreach (var d in order.Details.Where(d => !d.IsDeleted).OrderBy(d => d.SourceLocationCode))
+            {
+                ws.Cell(row, 1).Value = order.OrderNo;
+                ws.Cell(row, 2).Value = statusMap.GetValueOrDefault(order.Status, order.Status.ToString());
+                ws.Cell(row, 3).Value = d.SubstitutePartNo;
+                ws.Cell(row, 4).Value = d.SourceLocationCode;
+                ws.Cell(row, 5).Value = d.OriginalPartNo;
+                ws.Cell(row, 6).Value = d.TargetLocationCode;
+                ws.Cell(row, 7).Value = (double)d.Quantity;
+                ws.Cell(row, 8).Value = d.Status == 2 ? "已确认" : "待确认";
+                ws.Cell(row, 9).Value = order.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
+                row++;
+            }
+        }
+
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
     }
 }
 

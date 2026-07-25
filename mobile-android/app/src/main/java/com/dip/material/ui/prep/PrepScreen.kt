@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -66,21 +67,25 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                     }
                 }
 
-                // 备料明细
+                // 备料明细 - 进度计数器固定在列表上方，始终可见
                 state.selectedOrder?.let { order ->
-                    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val totalParts = order.details?.size ?: 0
+                    val doneParts = order.details?.count { d ->
+                        d.status == 2 || (state.scannedCounts[d.id] ?: 0) > 0
+                    } ?: 0
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text("已完成料号: $doneParts / $totalParts",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
+                    }
+                    LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         item { Text("备料单: ${order.orderNo} | 产品: ${order.productName}", style = MaterialTheme.typography.titleSmall) }
-                        item { Text("条码须>14位，扣动扫码枪扳机逐袋扫描（未配广播可手动输入）", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
-                        // 进度计数器：已完成料号数 / 总料号数
-                        val totalParts = order.details?.size ?: 0
-                        val doneParts = order.details?.count { d ->
-                            d.status == 2 || (state.scannedCounts[d.id] ?: 0) > 0
-                        } ?: 0
-                        item {
-                            Text("已完成料号: $doneParts / $totalParts",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
-                        }
+                        item { Text("条码须>14位，扣动扫码枪扳机逐袋扫描", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
                         order.details?.let { details ->
                             items(details) { d ->
                                 val isDone = d.status == 2
@@ -134,8 +139,10 @@ fun PrepScreen(onBack: () -> Unit, viewModel: PrepViewModel = viewModel()) {
                     items(state.orders) { order ->
                         Card(onClick = { viewModel.selectOrder(order.id) }, Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp)) {
+                                if (order.productName.isNotEmpty())
+                                    Text(order.productName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text(order.orderNo, style = MaterialTheme.typography.titleMedium)
+                                    Text(order.orderNo, style = MaterialTheme.typography.titleMedium, color = Color.Gray)
                                     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
                                         Text("待备料", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                                     }

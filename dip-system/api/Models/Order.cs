@@ -19,6 +19,9 @@ public class ProductionOrder : BaseEntity
     [Column("product_name")]
     public string ProductName { get; set; } = string.Empty;
 
+    [Column("production_month")]
+    public string? ProductionMonth { get; set; }
+
     [Column("plan_qty")]
     public decimal PlanQty { get; set; }
 

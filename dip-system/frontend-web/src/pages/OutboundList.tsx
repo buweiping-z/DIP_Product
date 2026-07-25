@@ -26,6 +26,7 @@ export default function OutboundList() {
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [isManager, setIsManager] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [detailData, setDetailData] = useState<any>(null);
 
   useEffect(() => {
     api.get('/auth/me').then(r => {
@@ -118,6 +119,13 @@ export default function OutboundList() {
     try { await api.delete(`/outbound/${id}`); fetchData(); } catch {}
   };
 
+  const handleDetail = async (id: number) => {
+    try {
+      const res = await api.get(`/outbound/${id}`);
+      if (res.code === 0) setDetailData(res.data);
+    } catch {}
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -171,7 +179,12 @@ export default function OutboundList() {
                   <button onClick={() => handleDelete(o.id)} className="text-red-500 hover:text-red-700 text-xs">删除</button>
                 </td>
               )}
-              {isManager && o.status !== 1 && <td className="p-3"></td>}
+              {isManager && o.status === 2 && (
+                <td className="p-3">
+                  <button onClick={() => handleDetail(o.id)} className="text-blue-600 hover:text-blue-800 text-xs">详情</button>
+                </td>
+              )}
+              {isManager && o.status === 3 && <td className="p-3"></td>}
               {!isManager && <td className="p-3"></td>}
             </tr>
           ))}</tbody>
@@ -255,6 +268,57 @@ export default function OutboundList() {
               <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
                 {editId ? '保存修改' : '确认创建'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[650px] max-h-[85vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">出库单详情</h2>
+              <button onClick={() => setDetailData(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+
+            <div className="flex gap-6 mb-4 text-sm flex-wrap">
+              <div><span className="text-gray-500">订单号：</span><span className="font-mono">{detailData.order_no}</span></div>
+              <div><span className="text-gray-500">状态：</span>
+                <span className={`px-2 py-0.5 rounded text-xs text-white ${detailData.status === 1 ? 'bg-yellow-500' : detailData.status === 2 ? 'bg-green-500' : 'bg-gray-500'}`}>
+                  {STATUS_MAP[detailData.status] || detailData.status}
+                </span>
+              </div>
+              <div><span className="text-gray-500">创建时间：</span>{detailData.created_at?.slice(0, 19)}</div>
+              {detailData.completed_at && <div><span className="text-gray-500">完成时间：</span>{detailData.completed_at?.slice(0, 19)}</div>}
+            </div>
+
+            <table className="w-full text-sm border rounded">
+              <thead><tr className="bg-gray-50">
+                <th className="p-2 text-left">料号</th>
+                <th className="p-2 text-left">名称</th>
+                <th className="p-2 text-left">库位</th>
+                <th className="p-2 text-right">数量</th>
+                <th className="p-2 text-center">明细状态</th>
+              </tr></thead>
+              <tbody>
+                {(detailData.details || []).map((d: any) => (
+                  <tr key={d.id} className="border-t">
+                    <td className="p-2 font-mono text-xs">{d.part_no}</td>
+                    <td className="p-2 text-xs">{d.part_name}</td>
+                    <td className="p-2 font-mono text-xs">{d.location_code}</td>
+                    <td className="p-2 text-right">{d.quantity}</td>
+                    <td className="p-2 text-center">
+                      <span className={`px-2 py-0.5 rounded text-xs text-white ${d.status === 2 ? 'bg-green-500' : 'bg-yellow-500'}`}>
+                        {d.status === 2 ? '已核销' : '待核销'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setDetailData(null)} className="px-4 py-2 border rounded hover:bg-gray-50">关闭</button>
             </div>
           </div>
         </div>

@@ -25,7 +25,10 @@ import com.dip.material.ui.return_.ReturnScreen
 import com.dip.material.ui.online.OnlineScreen
 import com.dip.material.ui.substitute.SubstituteScreen
 import com.dip.material.ui.outbound.OutboundScreen
+import com.dip.material.ui.changeover.ChangeoverScreen
+import androidx.lifecycle.lifecycleScope
 import com.dip.material.data.network.RetrofitClient
+import com.dip.material.data.network.TokenHolder
 import com.dip.material.utils.PreferencesManager
 import com.dip.material.utils.ScanBroadcastReceiver
 import com.dip.material.utils.ScanConfig
@@ -73,6 +76,16 @@ class MainActivity : ComponentActivity() {
         // 回到前台时再下发一次扫码服务配置，确保 action 始终生效
         // （配置可能被系统/扫码服务重置，CRUISE 1 需要主动维持）
         applyScanConfig()
+
+        // 预热 TCP 连接：回到前台时发一个轻量请求打通网络通道
+        // 避免用户第一次操作（扫码等）等 5 秒 TCP 重传超时
+        lifecycleScope.launch {
+            try {
+                RetrofitClient.getApiService(this@MainActivity).getCurrentUser()
+            } catch (_: Exception) {
+                // 静默忽略，仅预热连接
+            }
+        }
     }
 
     /**
@@ -103,9 +116,10 @@ fun AppNavHost() {
             onNavigateToOnline = { navController.navigate("online") },
             onNavigateToSubstitute = { navController.navigate("substitute") },
             onNavigateToOutbound = { navController.navigate("outbound") },
+            onNavigateToChangeover = { navController.navigate("changeover") },
             onLogout = {
                 scope.launch {
-                    prefs.clearTokens()
+                    TokenHolder.clear()
                     RetrofitClient.reset()
                     navController.navigate("login") { popUpTo("home") { inclusive = true } }
                 }
@@ -118,5 +132,6 @@ fun AppNavHost() {
         composable("online") { OnlineScreen(onBack = { navController.popBackStack() }) }
         composable("substitute") { SubstituteScreen(onBack = { navController.popBackStack() }) }
         composable("outbound") { OutboundScreen(onBack = { navController.popBackStack() }) }
+        composable("changeover") { ChangeoverScreen(onBack = { navController.popBackStack() }) }
     }
 }

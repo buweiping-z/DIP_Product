@@ -62,21 +62,27 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Column(Modifier.padding(12.dp)) {
                             Text("${order.orderNo} | ${order.productName}", style = MaterialTheme.typography.titleSmall)
-                            Text("条码须>14位，扣动扫码枪扳机逐袋扫描（未配广播可手动输入）", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            Text("条码须>14位，扣动扫码枪扳机逐袋扫描", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                     }
                 }
 
-                // 进度计数器：已完成料号数 / 总料号数
+                // 进度计数器：已完成料号数 / 总料号数（固定在列表上方，始终可见）
                 val totalParts = state.details.size
                 val doneParts = state.details.count { (state.scannedCounts[it.id] ?: 0) > 0 }
-                Text("已确认料号: $doneParts / $totalParts",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text("已确认料号: $doneParts / $totalParts",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (doneParts >= totalParts) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
+                }
 
                 // 料号核对列表
-                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(state.details) { d ->
                         val scannedQty = state.scannedCounts[d.id] ?: 0
                         val isDone = scannedQty > 0

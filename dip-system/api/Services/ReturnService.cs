@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
 using DIP.Api.Models;
@@ -7,8 +8,9 @@ namespace DIP.Api.Services;
 public class ReturnService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public ReturnService(AppDbContext db) { _db = db; }
+    public ReturnService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     public async Task<object> ScanReturnAsync(string barcode, long targetLocationId, long operatorId)
     {
@@ -30,7 +32,7 @@ public class ReturnService
             BatchNo = "", Quantity = 1, TargetLocationId = targetLocationId
         });
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         await invSvc.AddCoreAsync(part.Id, targetLocationId, 1, "", operatorId, "Return", order.Id);
         await _db.SaveChangesAsync();
 
@@ -48,7 +50,7 @@ public class ReturnService
         _db.ReturnOrders.Add(order);
         await _db.SaveChangesAsync();
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         if (data.TryGetValue("items", out var itemsObj) && itemsObj is System.Text.Json.JsonElement je)
         {
             var items = System.Text.Json.JsonSerializer.Deserialize<List<Dictionary<string, System.Text.Json.JsonElement>>>(je.GetRawText());
@@ -81,7 +83,7 @@ public class ReturnService
         var order = await _db.ReturnOrders.FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null) throw AppException.NotFound($"退料单 {orderId} 不存在");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var oldItems = await _db.ReturnOrderItems.Where(i => i.ReturnOrderId == orderId).ToListAsync();
         foreach (var old in oldItems)
         {
@@ -149,7 +151,7 @@ public class ReturnService
         _db.ReturnOrders.Add(order);
         await _db.SaveChangesAsync();
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         foreach (var item in items)
         {
             var part = await _db.Parts.FirstOrDefaultAsync(p => p.Id == item.PartId);

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DIP.Api.Models;
 using DIP.Api.Services;
@@ -5,6 +6,7 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/locations")]
 public class LocationsController : ControllerBase
 {
@@ -52,11 +54,19 @@ public class LocationsController : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "locations_template.xlsx");
     }
 
+    [HttpGet("export")]
+    public async Task<IActionResult> Export()
+    {
+        var bytes = await _svc.ExportAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "locations_export.xlsx");
+    }
+
     [HttpGet("warehouses")]
     public async Task<IActionResult> GetWarehouses() => Ok(ApiResponse.Ok(await _svc.GetWarehousesAsync()));
 }
 
 [ApiController]
+[Authorize]
 [Route("api/v1/lines")]
 public class LinesController : ControllerBase
 {

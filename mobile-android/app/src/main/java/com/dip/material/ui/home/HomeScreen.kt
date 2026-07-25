@@ -1,6 +1,8 @@
 package com.dip.material.ui.home
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -24,6 +26,7 @@ fun HomeScreen(
     onNavigateToOnline: () -> Unit,
     onNavigateToSubstitute: () -> Unit,
     onNavigateToOutbound: () -> Unit,
+    onNavigateToChangeover: () -> Unit,
     onLogout: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
@@ -38,10 +41,13 @@ fun HomeScreen(
         },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             // 未完成任务栏
             val hasPending = state.pendingPrep > 0 || state.pendingRefill > 0 || state.pendingSubstitute > 0
-                || state.pendingOnline > 0 || state.pendingOutbound > 0
+                || state.pendingOnline > 0 || state.pendingOutbound > 0 || state.pendingChangeover > 0
             if (hasPending) {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3CD))) {
                     Column(Modifier.padding(12.dp)) {
@@ -73,6 +79,11 @@ fun HomeScreen(
                                     Text("${state.pendingSubstitute}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
                                     Text("待移库", fontSize = 11.sp, color = Color.Gray)
                                 }
+                            if (state.pendingChangeover > 0)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${state.pendingChangeover}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    Text("切替中", fontSize = 11.sp, color = Color.Gray)
+                                }
                         }
                     }
                 }
@@ -100,6 +111,7 @@ fun HomeScreen(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FuncCard("出库", Icons.Default.ExitToApp, Modifier.weight(1f), onClick = onNavigateToOutbound)
+                FuncCard("切替", Icons.Default.SwapHoriz, Modifier.weight(1f), onClick = onNavigateToChangeover)
             }
         }
     }

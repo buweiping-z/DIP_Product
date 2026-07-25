@@ -73,7 +73,7 @@ fun OutboundScreen(onBack: () -> Unit, viewModel: OutboundViewModel = viewModel(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Column(Modifier.padding(12.dp)) {
                         Text("订单号: ${order.orderNo}", style = MaterialTheme.typography.titleSmall)
-                        Text("条码须>14位，扣动扫码枪扳机逐袋扫描（未配广播可手动输入）", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Text("条码须>14位，扣动扫码枪扳机逐袋扫描", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
                 }
 

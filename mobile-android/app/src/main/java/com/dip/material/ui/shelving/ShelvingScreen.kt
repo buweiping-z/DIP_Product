@@ -1,7 +1,9 @@
 package com.dip.material.ui.shelving
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -83,7 +85,7 @@ fun ShelvingScreen(onBack: () -> Unit, viewModel: ShelvingViewModel = viewModel(
 
             // ── 步骤内容 ──
             Column(
-                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 when (state.step) {

@@ -133,6 +133,38 @@ public class LocationService
         return count;
     }
 
+    public async Task<byte[]> ExportAsync()
+    {
+        var items = await _db.WarehouseLocations.OrderBy(l => l.LocationCode).ToListAsync();
+
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("库位数据");
+        ws.Cell(1, 1).Value = "库位编码";
+        ws.Cell(1, 2).Value = "仓库";
+        ws.Cell(1, 3).Value = "库区";
+        ws.Cell(1, 4).Value = "排";
+        ws.Cell(1, 5).Value = "列";
+        ws.Cell(1, 6).Value = "最大容量";
+        ws.Cell(1, 7).Value = "当前数量";
+        ws.Cell(1, 8).Value = "状态";
+        int row = 2;
+        foreach (var l in items)
+        {
+            ws.Cell(row, 1).Value = l.LocationCode;
+            ws.Cell(row, 2).Value = l.Warehouse ?? "";
+            ws.Cell(row, 3).Value = l.Zone ?? "";
+            ws.Cell(row, 4).Value = l.Row ?? "";
+            ws.Cell(row, 5).Value = l.Column ?? "";
+            ws.Cell(row, 6).Value = (double)l.MaxCapacity;
+            ws.Cell(row, 7).Value = (double)l.CurrentQty;
+            ws.Cell(row, 8).Value = l.Status == 1 ? "启用" : "禁用";
+            row++;
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
     public async Task<byte[]> ExportTemplateAsync()
     {
         using var wb = new XLWorkbook();

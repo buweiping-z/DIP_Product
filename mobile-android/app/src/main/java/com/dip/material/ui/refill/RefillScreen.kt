@@ -14,13 +14,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dip.material.ui.components.BarcodeTextField
+import com.dip.material.ui.components.QrCodeScanner
+import com.dip.material.ui.components.ScanMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val batches by viewModel.activeBatches.collectAsState()
-    // PDA 扫码输入由 BarcodeTextField 自管理
+    var showScanner by remember { mutableStateOf(false) }
+    var scanSession by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) { viewModel.loadBatches() }
 
@@ -32,17 +35,18 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
         else -> "补料管理"
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(title) },
-                navigationIcon = { IconButton(onClick = {
-                    if (state.step > 0) viewModel.clearAll() else onBack()
-                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer))
-        }
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            // PDA 扫码输入区
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(title = { Text(title) },
+                    navigationIcon = { IconButton(onClick = {
+                        if (state.step > 0) viewModel.clearAll() else onBack()
+                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer))
+            }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+            // PDA 扫码输入区（key=scanSession 确保相机离开后协程重拉）
             if (state.step >= 1) {
                 val hint = when (state.step) {
                     1 -> "扫部品条码(>14位)"
@@ -50,18 +54,20 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                     3 -> if (state.boxPartNo.isEmpty()) "扫料盒(≤14位)" else "扫部品(>14位且含料盒号)"
                     else -> ""
                 }
-                BarcodeTextField(
-                    onBarcodeScanned = { barcode ->
-                        when (state.step) {
-                            1 -> viewModel.togglePart(barcode.trim())
-                            2 -> viewModel.scanPick(barcode.trim())
-                            3 -> viewModel.scanVerify(barcode.trim())
-                        }
-                    },
-                    label = hint,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    clearKey = state.step
-                )
+                key(scanSession) {
+                    BarcodeTextField(
+                        onBarcodeScanned = { barcode ->
+                            when (state.step) {
+                                1 -> viewModel.togglePart(barcode.trim())
+                                2 -> viewModel.scanPick(barcode.trim())
+                                3 -> viewModel.scanVerify(barcode.trim())
+                            }
+                        },
+                        label = hint,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        clearKey = state.step
+                    )
+                }
             }
 
             // 核对时显示当前料盒信息
@@ -101,12 +107,19 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                             }
                         }
                         Text("补料管理", style = MaterialTheme.typography.headlineMedium); Spacer(Modifier.height(16.dp))
-                        Text("扫描或输入产品名称", style = MaterialTheme.typography.bodyLarge, color = Color.Gray); Spacer(Modifier.height(16.dp))
+                        Text("扫描或输入订单号", style = MaterialTheme.typography.bodyLarge, color = Color.Gray); Spacer(Modifier.height(16.dp))
                         BarcodeTextField(
-                            onBarcodeScanned = { viewModel.scanProduct(it.trim()) },
-                            label = "产品名称/条码",
+                            onBarcodeScanned = { viewModel.scanOrder(it.trim()) },
+                            label = "订单号条码",
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { showScanner = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("相机扫码")
+                        }
                     }
                 }
                 1 -> {
@@ -141,8 +154,10 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                             }
                         }
                     }
-                    Button(onClick = { viewModel.goPickDone() }, modifier = Modifier.fillMaxWidth().padding(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))) {
-                        Text("取料完成，去核对", color = Color.White)
+                    val allPicked = state.selectedIds.isNotEmpty() && state.pickedIds.containsAll(state.selectedIds)
+                    Button(onClick = { viewModel.goPickDone() }, enabled = allPicked,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))) {
+                        Text(if (allPicked) "取料完成，去核对" else "请先完成取料扫描", color = Color.White)
                     }
                 }
                 3 -> {
@@ -160,11 +175,30 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
                             }
                         }
                     }
-                    Button(onClick = { viewModel.goDone() }, modifier = Modifier.fillMaxWidth().padding(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
-                        Text("核对完成，结束补料", color = Color.White)
+                    val allVerified = state.selectedIds.isNotEmpty() && state.verifiedIds.containsAll(state.selectedIds)
+                    Button(onClick = { viewModel.goDone() }, enabled = allVerified,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
+                        Text(if (allVerified) "核对完成，结束补料" else "请先完成核对扫描", color = Color.White)
                     }
                 }
             }
+        }
+        }
+
+        // 全屏相机扫码（叠加层，不销毁底层 Scaffold，确保 BarcodeTextField 的收集协程不被取消）
+        if (showScanner) {
+            QrCodeScanner(
+                onBarcodeScanned = { barcode ->
+                    viewModel.scanOrder(barcode.trim())
+                    showScanner = false
+                    scanSession++
+                },
+                scanMode = ScanMode.AUTO,
+                onClose = {
+                    showScanner = false
+                    scanSession++
+                }
+            )
         }
     }
 }

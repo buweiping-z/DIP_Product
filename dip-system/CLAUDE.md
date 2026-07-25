@@ -120,3 +120,86 @@ npm run dev
 | 3 | order_products 表不存在 | EnsureCreated 不建新表 | CREATE TABLE IF NOT EXISTS |
 | 4 | 编辑弹窗 BOM 有时无数据 | GetBomStatusAsync 用拼接 ProductName 匹配 | 查 order_products + 合并 BOM |
 | 5 | 库存排序是数字序非字母序 | QueryAsync 按 PartId 排序 | JOIN 后按字符串排序 |
+
+### 2026-07-20 — 手机端界面自适应 + 补料多源搜索 + 便携发布优化
+
+**手机端界面自适应（Compose Column 溢出修复）：**
+- 主界面 HomeScreen、上架 ShelvingScreen、退料 ReturnScreen 外层 Column 加 `verticalScroll(rememberScrollState())`
+- 备料 PrepScreen、上线 OnlineScreen 进度计数器从 LazyColumn 内移出到固定顶部 + Surface 凸显，LazyColumn 改 `weight(1f)`
+- BarcodeTextField 手动输入标签简化："手动输入（未配广播时使用）" → "手动输入"
+
+**补料多源搜索（RefillService.GetPartsByProductAsync）：**
+- 多产品订单改造后 product_name 分散在三张表：`product_boms`（BOM 目录）、`order_products`（新订单产品）、`production_orders.product_name`（旧字段）
+- 修复：三层搜索 `product_boms`（模糊匹配获取精确名）→ `order_products`（精确名+模糊搜索）→ `production_orders`（兼容旧数据）
+- 产品名>10位时截取前10位（`RefillViewModel.scanProduct`）
+
+**便携发布优化：**
+- 移除 Program.cs 启动自动建表/种子数据/僵尸清理/冻结重建代码块（目标环境 DB 已就绪）
+- 启动.cmd 用纯英文避免 CMD 的 GBK/UTF-8 编码乱码
+
+### 2026-07-22 — WiFi自动恢复 + Token自动刷新 + 途中切替 + 多项修复
+
+**WiFi 断网自动重连：**
+- `DIPApplication` 注册 `ConnectivityManager.NetworkCallback` 监听 WiFi `onAvailable` → `RetrofitClient.reset()`
+- `RetrofitClient.getApiService()` 加 `networkHandle` 兜底对比，Doze/待机漏了 callback 时自动检测并重建
+
+**Token 自动刷新（401）：**
+- 新建 `TokenHolder` 内存单例：启动从 DataStore 加载 + 登录/刷新后同步写内存+DataStore
+- OkHttp `TokenAuthenticator`：拦截 401 → 读 `TokenHolder.refreshToken` → POST /auth/refresh → 保存新 Token → 重试
+- AuthInterceptor 去掉 `runBlocking` + `Context` 参数，直接读 `TokenHolder.accessToken`
+
+**扫描模块 \r\n 处理修复：**
+- `ScanBroadcastReceiver.extractBarcode` 全局 `replace("\r\n","")` → `trim()` 仅去首尾空白
+- 取全部候选 Extra Key 中最长的值（避免无空格的短值被选中）
+
+**连接预热（onResume）：**
+- `MainActivity.onResume` 发 `getCurrentUser()` 预热 TCP 连接，解决待机后首次请求 5 秒延迟
+
+**途中切替（新模块）：**
+- 后端：`ChangeoverBatch` 批次表 + `InlineChangeover` 明细表，8 个 API 端点
+- 手机端：`ChangeoverScreen` + `ChangeoverViewModel` 批次管理模式（扫产品→存 BOM→逐袋扫→退出可续）
+- 网页端：`ChangeoverList` 记录页 + Dashboard 统计卡片
+
+**其他修复：**
+- 上架管理扫库位去除 `searchLocations` 兜底，只匹配已有库存库位
+- 补料核对 `doVerify` 不清除 `boxPartNo`，允许连续扫多袋
+- 备料单列表加产品名：后端 `PrepService.GetListAsync` JOIN `order_products`，`ToDict` 加 `product_name`
+- 订单打印：产品名右侧加 Code 128 条形码（jsbarcode）+ 表格加"生产数量"列
+- 库位管理加搜索自动匹配下拉
+- 补料/切替 `scanProduct` 10位截断改为9位
+
+### 2026-07-23/24 — 生连（生产月份 BOM 版本管理）+ 多项修复
+
+**生连功能（重大架构变更）：**
+- 数据模型：`product_boms` 和 `production_orders` 新增 `production_month VARCHAR(7) NULL`
+- 自然键：产品名 + 生产月份（`YYYY_MM` 格式）唯一确定一套 BOM
+- BOM 查询 fallback：优先精确匹配月份，未命中 → NULL 通用版本
+- BOM 导入：4 列模板（产品名称 / 生连 / 料号 / 用量），相同产品+月份全量替换
+- 新建订单：先选生连月份（默认当月，← → 翻页），再选该月份有 BOM 的产品
+- 打印 PDF：订单号追加 Code 128 条码 + 产品明细表追加生连列
+- 导出产品BOM：`GET /orders/export-product-bom` 下载全量产品 BOM Excel
+- `GET /orders/by-no`：通过订单号反查订单信息供手机端使用
+- 前端面板标签统一从"生产月份"改为"生连"
+
+**手机端补料/切替改造：**
+- 入口从"扫产品名（9位截断）"改为"扫订单号条码"
+- BOM 不再绕 `product_boms` 查询，直接从订单的 `bom_items` / `prep_details` 取
+- 切替批次的产品名从后端实时返回（`order_products` 拼接），不再用"订单:WO2026..."
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 替代移库提交后 App 崩溃 | Screen 中 `state.selectedOrder!!` 在重组时 NPE | 判空后提局部 val，去掉全部 `!!` |
+| 2 | 选择 8 月生连但 BOM 预览显示 7 月 | `/orders/product-bom` 漏传 `month` 参数 | useEffect 加 `form.production_month` 传参和 deps |
+| 3 | 补料扫 8 月订单返回 7+8 月料号 | `GetPartsByOrderNoAsync` 未传 `productionMonth` | 改为直接从订单 `prep_orders→prep_details` 查 |
+| 4 | 切替扫订单号找不到 BOM | `Order.ProductName` 是拼接名（"主板/电源板"），不匹配单个 BOM | 改为直接从 `bom_items` 表查 |
+| 5 | 新建弹窗产品列表为空 | `openCreate` 先调 `loadMeta()` 读旧月份再 `setForm` | 提前计算月份 → 传参给 `loadMeta(thisMonth)` |
+| 6 | 前端偶尔卡死 F5 无反应 | 防抖 useEffect 闭包过期 + BOM 预览无 `showDialog` 守卫 | 定时器直调 api；预览加 `!showDialog` 前置守卫 |
+| 7 | 产品大小写不一致导致 BOM 匹配失败 | `b.ProductName == name` 大小写敏感 | 统一用 `.ToLower().Trim()` |
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `efcore-case-insensitive-string-match` — EF Core MySQL 字符串匹配必须加 `.ToLower().Trim()`
+- `react-useeffect-closure-stale-guard` — useEffect 闭包过期 + 缺少守卫导致请求风暴
+- `compose-state-snapshot-npe` — Compose 重组中 !! 导致的 NPE 崩溃
+- `inline_changeovers` 表补建 `operator_id`、`batch_no` 列

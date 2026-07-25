@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DIP.Api.Data;
@@ -19,6 +20,9 @@ public class SystemController : ControllerBase
     [HttpPost("clear-data")]
     public async Task<IActionResult> ClearData()
     {
+        var role = User.FindFirstValue("role");
+        if (role != "admin")
+            return Ok(new { code = 403, data = (object?)null, message = "仅管理员可执行此操作" });
         // 订单 + BOM 明细 + 订单产品关联
         _db.BomItems.RemoveRange(_db.BomItems);
         _db.OrderProducts.RemoveRange(_db.OrderProducts);

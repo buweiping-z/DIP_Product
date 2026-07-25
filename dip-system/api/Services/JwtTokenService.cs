@@ -12,12 +12,19 @@ namespace DIP.Api.Services;
 public class JwtTokenService
 {
     private readonly string _secret;
+    private readonly string _issuer;
+    private readonly string _audience;
     private readonly int _expiresMinutes;
     private readonly int _refreshExpireDays;
+
+    public int ExpiresMinutes => _expiresMinutes;
+    public int RefreshExpireDays => _refreshExpireDays;
 
     public JwtTokenService(IConfiguration config)
     {
         _secret = config["Jwt:Secret"]!;
+        _issuer = config["Jwt:Issuer"] ?? "DIP.Api";
+        _audience = config["Jwt:Audience"] ?? "DIP.Client";
         _expiresMinutes = int.Parse(config["Jwt:ExpiresMinutes"] ?? "30");
         _refreshExpireDays = int.Parse(config["Jwt:RefreshExpireDays"] ?? "7");
     }
@@ -37,6 +44,8 @@ public class JwtTokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
+            issuer: _issuer,
+            audience: _audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(_expiresMinutes),
             signingCredentials: creds);
@@ -60,8 +69,10 @@ public class JwtTokenService
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secret));
             var principal = handler.ValidateToken(token, new TokenValidationParameters
             {
-                ValidateIssuer = false,
-                ValidateAudience = false,
+                ValidateIssuer = true,
+                ValidIssuer = _issuer,
+                ValidateAudience = true,
+                ValidAudience = _audience,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = key,

@@ -17,14 +17,13 @@ class PreferencesManager(private val context: Context) {
         private val KEY_TOKEN = stringPreferencesKey("token")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val KEY_USERNAME = stringPreferencesKey("username")
-        private val KEY_PASSWORD = stringPreferencesKey("password")
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_REMEMBER = booleanPreferencesKey("remember")
     }
 
     val token: Flow<String> = context.dataStore.data.map { it[KEY_TOKEN] ?: "" }
+    val refreshToken: Flow<String> = context.dataStore.data.map { it[KEY_REFRESH_TOKEN] ?: "" }
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "http://192.168.5.11:8800/" }
-    val savedPassword: Flow<String> = context.dataStore.data.map { it[KEY_PASSWORD] ?: "" }
 
     suspend fun saveTokens(token: String, refreshToken: String) {
         context.dataStore.edit {
@@ -35,10 +34,6 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveUsername(username: String) {
         context.dataStore.edit { it[KEY_USERNAME] = username }
-    }
-
-    suspend fun savePassword(password: String) {
-        context.dataStore.edit { it[KEY_PASSWORD] = password }
     }
 
     suspend fun saveServerUrl(url: String) {
@@ -53,7 +48,7 @@ class PreferencesManager(private val context: Context) {
         context.dataStore.edit { it.clear() }
     }
 
-    /** 退出登录仅清 token，保留用户名密码和服务器地址 */
+    /** 退出登录仅清 token，保留用户名和服务器地址 */
     suspend fun clearTokens() {
         context.dataStore.edit {
             it.remove(KEY_TOKEN)

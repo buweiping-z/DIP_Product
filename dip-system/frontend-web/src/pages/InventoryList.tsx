@@ -71,6 +71,25 @@ export default function InventoryList() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  const handleExport = async () => {
+    try {
+      const res = await api.get('/inventory/export', {
+        params: { part_no: partNo || undefined, location_code: locationCode || undefined },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res as unknown as BlobPart]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'inventory_export.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setMsg('导出失败: ' + (err.message || ''));
+    }
+  };
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const fd = new FormData(); fd.append('file', file);
@@ -84,6 +103,15 @@ export default function InventoryList() {
     e.target.value = '';
   };
 
+  const handleDelete = async (id: number, partNo: string) => {
+    if (!confirm(`确认删除料号 ${partNo} 的库存记录？\n\n此操作将软删除该库存及关联批次，并扣减库位计数器。`)) return;
+    try {
+      await api.delete(`/inventory/${id}`);
+      setMsg(`已删除料号 ${partNo} 的库存记录`);
+      fetchData(page);
+    } catch (err: any) { setMsg('删除失败: ' + (err.message || '')); }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -93,8 +121,8 @@ export default function InventoryList() {
           {isManager && (
             <button onClick={() => fileRef.current?.click()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">导入库存</button>
           )}
-          <a href={`/api/v1/inventory/export?part_no=${encodeURIComponent(partNo)}&location_code=${encodeURIComponent(locationCode)}`}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导出Excel</a>
+          <button onClick={handleExport}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导出Excel</button>
           <a href="/api/v1/inventory/template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载模板</a>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
         </div>
@@ -151,6 +179,7 @@ export default function InventoryList() {
               <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('total_qty')}>总数量{sortIcon('total_qty')}</th>
               <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('available_qty')}>可用{sortIcon('available_qty')}</th>
               <th className="p-3 text-right cursor-pointer select-none hover:bg-gray-100" onClick={() => handleSort('frozen_qty')}>冻结{sortIcon('frozen_qty')}</th>
+              {isManager && <th className="p-3 w-20">操作</th>}
             </tr></thead>
             <tbody>{data.map(i => (
               <tr key={i.id} className="border-t hover:bg-gray-50">
@@ -160,6 +189,11 @@ export default function InventoryList() {
                 <td className="p-3 text-right">{i.total_qty}</td>
                 <td className="p-3 text-right text-green-600">{i.available_qty}</td>
                 <td className="p-3 text-right text-orange-600">{i.frozen_qty}</td>
+                {isManager && (
+                  <td className="p-3">
+                    <button onClick={() => handleDelete(i.id, i.part_no)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                  </td>
+                )}
               </tr>
             ))}</tbody>
           </table>

@@ -1,16 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    api.get('/dashboard/stats').then(r => setStats(r.data)).catch(() => {});
+  const fetchStats = useCallback(() => {
+    setError(false);
+    api.get('/dashboard/stats').then(r => setStats(r.data)).catch(() => setError(true));
   }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  if (error) return (
+    <div className="flex flex-col items-center justify-center h-64 gap-4">
+      <p className="text-red-500">数据加载失败</p>
+      <button onClick={fetchStats} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">重试</button>
+    </div>
+  );
 
   if (!stats) return <p className="text-gray-400">加载中...</p>;
 
-  const { order_stats, prep_stats, prep_rate, inventory_alerts, today_ops, refill_stats } = stats;
+  const { order_stats, prep_stats, prep_rate, inventory_alerts, today_ops, refill_stats, changeover_stats } = stats;
 
   return (
     <div>
@@ -61,6 +72,25 @@ export default function Dashboard() {
               { label: '未完成', value: refill_stats?.active || 0, color: 'text-orange-600' },
               { label: '已完成', value: refill_stats?.done || 0, color: 'text-green-600' },
               { label: '今日', value: refill_stats?.today || 0, color: 'text-blue-600' },
+            ].map(s => (
+              <div key={s.label}>
+                <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>
+                <div className="text-xs text-gray-500 mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">途中切替</h2>
+            <a href="/changeover" className="text-blue-600 text-xs hover:underline">查看详情 →</a>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            {[
+              { label: '进行中', value: changeover_stats?.active || 0, color: 'text-orange-600' },
+              { label: '已完成', value: changeover_stats?.done || 0, color: 'text-green-600' },
+              { label: '今日', value: changeover_stats?.today || 0, color: 'text-blue-600' },
             ].map(s => (
               <div key={s.label}>
                 <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>

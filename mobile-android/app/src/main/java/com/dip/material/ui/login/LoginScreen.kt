@@ -40,7 +40,6 @@ fun LoginScreen(
     LaunchedEffect(Unit) { usernameFocusRequester.requestFocus() }
     LaunchedEffect(state.serverUrl) { serverUrl = state.serverUrl }
     LaunchedEffect(state.savedUsername) { if (state.savedUsername.isNotBlank()) username = state.savedUsername }
-    LaunchedEffect(state.savedPassword) { if (state.savedPassword.isNotBlank()) password = state.savedPassword }
     LaunchedEffect(state.isLoggedIn) { if (state.isLoggedIn) onLoginSuccess() }
 
     // 广播模式：扫码枪扫描工牌条码，自动填入用户名（取代原键盘楔自动填入）

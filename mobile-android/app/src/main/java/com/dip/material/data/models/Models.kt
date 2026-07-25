@@ -66,6 +66,7 @@ data class ShelvingRecord(
 // ===== Prep =====
 data class PrepOrderItem(
     val id: Int, @SerializedName("order_no") val orderNo: String,
+    @SerializedName("product_name") val productName: String = "",
     @SerializedName("production_order_id") val productionOrderId: Int,
     @SerializedName("line_id") val lineId: Int, val status: Int,
     @SerializedName("kit_check_result") val kitCheckResult: Int,

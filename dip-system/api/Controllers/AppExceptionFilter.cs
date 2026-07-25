@@ -11,6 +11,10 @@ namespace DIP.Api.Controllers;
 /// </summary>
 public class AppExceptionFilter : IExceptionFilter
 {
+    private readonly ILogger<AppExceptionFilter> _logger;
+
+    public AppExceptionFilter(ILogger<AppExceptionFilter> logger) { _logger = logger; }
+
     public void OnException(ExceptionContext context)
     {
         if (context.Exception is AppException ex)
@@ -24,7 +28,6 @@ public class AppExceptionFilter : IExceptionFilter
         else if (context.Exception is DbUpdateException dbEx)
         {
             var msg = dbEx.InnerException?.Message ?? dbEx.Message;
-            // 提取关键信息：唯一约束冲突、外键冲突等
             if (msg.Contains("Duplicate entry") || msg.Contains("duplicate"))
                 msg = "数据已存在，请检查是否重复";
             else if (msg.Contains("foreign key") || msg.Contains("FOREIGN KEY"))
@@ -32,8 +35,9 @@ public class AppExceptionFilter : IExceptionFilter
             else if (msg.Contains("cannot be null") || msg.Contains("NULL"))
                 msg = "必填字段不能为空";
             else
-                msg = "数据保存失败: " + msg;
+                msg = "数据保存失败，请检查数据格式";
 
+            _logger.LogError(dbEx, "数据库更新异常");
             context.Result = new JsonResult(ApiResponse.Fail(500, msg))
             {
                 StatusCode = 200
@@ -42,7 +46,8 @@ public class AppExceptionFilter : IExceptionFilter
         }
         else
         {
-            context.Result = new JsonResult(ApiResponse.Fail(500, "服务器内部错误: " + context.Exception.Message))
+            _logger.LogError(context.Exception, "未处理异常: {Path}", context.HttpContext.Request.Path);
+            context.Result = new JsonResult(ApiResponse.Fail(500, "服务器内部错误，请稍后重试"))
             {
                 StatusCode = 200
             };

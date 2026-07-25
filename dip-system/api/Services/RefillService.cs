@@ -11,19 +11,88 @@ public class RefillService
     public RefillService(AppDbContext db) { _db = db; }
 
     /// <summary>
-    /// 扫描产品名称获取补料清单：当前生产中的产品的所有料号（备料完成的订单）
+    /// 扫描订单号获取补料清单：从订单反查产品名+月份，再加载待补料明细
     /// </summary>
-    public async Task<List<object>> GetPartsByProductAsync(string productName)
+    public async Task<List<object>> GetPartsByOrderNoAsync(string orderNo)
     {
-        // 取该产品最近一个活跃订单的物料清单
-        // 模糊匹配产品名（含部分输入、条码包含等）
-        var orderIds = await _db.ProductionOrders
-            .Where(o => o.ProductName.Contains(productName) && (o.Status == 1 || o.Status == 2))
-            .OrderByDescending(o => o.CreatedAt).Select(o => o.Id).ToListAsync();
+        var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.OrderNo == orderNo);
+        if (order == null) throw AppException.NotFound($"订单 {orderNo} 不存在");
+
+        // 直接从订单的 PrepOrders → PrepDetails 取待补料明细，不绕产品名
+        var prepIds = await _db.PrepOrders
+            .Where(p => p.ProductionOrderId == order.Id && p.Status != 3)
+            .Select(p => p.Id).ToListAsync();
+
+        var details = await _db.PrepDetails
+            .Where(d => prepIds.Contains(d.PrepOrderId))
+            .OrderBy(d => d.Id).ToListAsync();
+
+        var prepOrders = await _db.PrepOrders.Where(p => prepIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+        var partIds = details.Select(d => d.PartId).Distinct().ToList();
+        var invs = await _db.Inventories.Where(i => partIds.Contains(i.PartId)).ToListAsync();
+        var locIds = invs.Select(i => i.LocationId).Distinct().ToList();
+        var locations = await _db.WarehouseLocations.Where(l => locIds.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+        var prodOrders = await _db.ProductionOrders.Where(o => o.Id == order.Id).ToDictionaryAsync(o => o.Id);
+
+        var result = new List<object>();
+        foreach (var d in details)
+        {
+            prepOrders.TryGetValue(d.PrepOrderId, out var prep);
+            prodOrders.TryGetValue(prep?.ProductionOrderId ?? 0, out var prodOrder);
+            var partInvs = invs.Where(i => i.PartId == d.PartId).ToList();
+            var locCodes = partInvs.Select(i => locations.TryGetValue(i.LocationId, out var loc) ? loc.LocationCode : "")
+                .Where(c => !string.IsNullOrEmpty(c)).Distinct().ToList();
+
+            result.Add(new
+            {
+                prep_detail_id = d.Id, prep_order_id = d.PrepOrderId,
+                prep_order_no = prep?.OrderNo ?? "",
+                product_name = prodOrder?.ProductName ?? "",
+                part_id = d.PartId, part_no = d.PartNo,
+                required_qty = d.RequiredQty, actual_qty = d.ActualQty,
+                remaining = d.RequiredQty - d.ActualQty,
+                location_codes = locCodes
+            });
+        }
+        return result;
+    }
+
+    /// 扫描产品名称获取补料清单：当前生产中的产品的所有料号（备料完成的订单）
+    /// 同时搜索 product_boms（产品名注册表）、order_products（新多产品模式）、production_orders.product_name（旧单产品模式）
+    /// </summary>
+    public async Task<List<object>> GetPartsByProductAsync(string productName, string? productionMonth = null)
+    {
+        // 1. 从 product_boms 查找匹配的产品名称（产品名注册表，最全）
+        var bomProductNames = await _db.ProductBoms
+            .Where(b => b.ProductName.Contains(productName))
+            .Select(b => b.ProductName).Distinct().ToListAsync();
+
+        // 合并原始输入和 BOM 匹配到的精确名称
+        var searchNames = new List<string> { productName };
+        searchNames.AddRange(bomProductNames.Where(n => n != productName));
+
+        // 2. 先从 order_products 表查匹配的订单ID（多产品模式）
+        var orderProductIds = await _db.OrderProducts
+            .Where(op => searchNames.Contains(op.ProductName) || op.ProductName.Contains(productName))
+            .Select(op => op.OrderId).Distinct().ToListAsync();
+
+        // 3. 同时搜索 production_orders.product_name（旧单产品模式兼容）和 order_products
+        var orderQuery = _db.ProductionOrders
+            .Where(o => searchNames.Contains(o.ProductName) || o.ProductName.Contains(productName) || orderProductIds.Contains(o.Id))
+            .Where(o => o.Status == 1 || o.Status == 2);
+        // 有生连月份时只匹配同月份的订单
+        if (!string.IsNullOrEmpty(productionMonth))
+            orderQuery = orderQuery.Where(o => o.ProductionMonth == productionMonth || o.ProductionMonth == null);
+        var orderIds = await orderQuery.OrderByDescending(o => o.CreatedAt).Select(o => o.Id).ToListAsync();
         if (!orderIds.Any())
-            orderIds = await _db.ProductionOrders
-                .Where(o => o.ProductName.Contains(productName)).OrderByDescending(o => o.CreatedAt)
+        {
+            var fallbackQuery = _db.ProductionOrders
+                .Where(o => searchNames.Contains(o.ProductName) || o.ProductName.Contains(productName) || orderProductIds.Contains(o.Id));
+            if (!string.IsNullOrEmpty(productionMonth))
+                fallbackQuery = fallbackQuery.Where(o => o.ProductionMonth == productionMonth || o.ProductionMonth == null);
+            orderIds = await fallbackQuery.OrderByDescending(o => o.CreatedAt)
                 .Take(1).Select(o => o.Id).ToListAsync();
+        }
 
         var prepIds = await _db.PrepOrders
             .Where(p => orderIds.Contains(p.ProductionOrderId) && p.Status != 3)

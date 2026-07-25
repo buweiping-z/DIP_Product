@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using DIP.Api.Models;
 using DIP.Api.Services;
 
@@ -15,6 +16,7 @@ public class AuthController : ControllerBase
     public AuthController(AuthService auth) { _auth = auth; }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
         var result = await _auth.LoginAsync(req.Username, req.Password);

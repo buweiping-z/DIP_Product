@@ -72,13 +72,12 @@ class ShelvingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** 步骤2：扫库位 → 匹配校验 */
+    /** 步骤2：扫库位 → 仅允许部品已有库存的库位，防错放 */
     fun scanLocation(code: String) {
         val stateVal = _state.value
         val partLocations = stateVal.partLocations
         val trimmed = code.trim()
 
-        // 先匹配已有库存的库位
         val matched = partLocations.firstOrNull {
             it.locationCode.trim().equals(trimmed, ignoreCase = true)
         }
@@ -89,29 +88,10 @@ class ShelvingViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        // 库存中没匹配到 → 查全部库位
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
-            repo.searchLocations(trimmed).fold(
-                onSuccess = { res ->
-                    val items = res.data?.items ?: emptyList()
-                    val loc = items.firstOrNull {
-                        it.locationCode.trim().equals(trimmed, ignoreCase = true)
-                    }
-                    if (loc != null) {
-                        ScanSoundManager.playSuccess()
-                        _state.update { it.copy(scannedLocation = loc, isLoading = false, step = 3, resultMsg = null, scanEventId = it.scanEventId + 1, lastScanOk = true) }
-                    } else {
-                        ScanSoundManager.playError()
-                        _state.update { it.copy(isLoading = false, resultMsg = "库位编号不存在: $trimmed", scanEventId = it.scanEventId + 1, lastScanOk = false) }
-                    }
-                },
-                onFailure = { e ->
-                    ScanSoundManager.playError()
-                    _state.update { it.copy(isLoading = false, resultMsg = e.message, scanEventId = it.scanEventId + 1, lastScanOk = false) }
-                }
-            )
-        }
+        // 不在该部品的库存库位列表中 → 拒绝
+        ScanSoundManager.playError()
+        val available = partLocations.joinToString(", ") { it.locationCode }
+        _state.update { it.copy(resultMsg = "库位不匹配，仅允许: $available", scanEventId = it.scanEventId + 1, lastScanOk = false) }
     }
 
     /** 步骤3：扫描袋子 → 料号必须>14位，解析后校验匹配 + 计数 */

@@ -62,6 +62,17 @@ public class InventoryController : ControllerBase
     public async Task<IActionResult> Update(long id, [FromBody] UpdateInventoryRequest req)
         => Ok(ApiResponse.Ok(await _svc.UpdateAsync(id, req.TotalQty, req.AvailableQty, req.LocationCode), "更新成功"));
 
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(long id)
+    {
+        var role = User.FindFirstValue("role") ?? "";
+        if (!role.Equals("admin", StringComparison.OrdinalIgnoreCase) &&
+            !role.Equals("leader", StringComparison.OrdinalIgnoreCase))
+            return Ok(ApiResponse.Fail(403, "仅管理员可操作"));
+        await _svc.DeleteAsync(id);
+        return Ok(ApiResponse.Ok(null, "删除成功"));
+    }
+
     [HttpGet("substitute")]
     public async Task<IActionResult> GetSubstituteList([FromQuery] int page = 1, [FromQuery] int page_size = 20)
         => Ok(ApiResponse.Ok(await _svc.GetSubstituteListAsync(page, page_size)));

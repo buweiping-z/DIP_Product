@@ -135,6 +135,10 @@ public class PartService
         using var wb = new XLWorkbook(new MemoryStream(fileBytes));
         var ws = wb.Worksheet(1);
         var rows = ws.RowsUsed().Skip(1);
+
+        var allParts = await _db.Parts.IgnoreQueryFilters().ToListAsync();
+        var partDict = allParts.ToDictionary(p => p.PartNo, p => p);
+
         int count = 0;
         foreach (var row in rows)
         {
@@ -148,24 +152,23 @@ public class PartService
             var type = row.Cell(5).TryGetValue(out int tp) ? tp : 1;
             var msl = row.Cell(6).TryGetValue(out int ms) ? ms : 0;
 
-            // 含软删除查询：未删→跳过，已删→恢复，不存在→新增
-            var existing = await _db.Parts.IgnoreQueryFilters().FirstOrDefaultAsync(p => p.PartNo == pn);
-            if (existing != null)
+            if (partDict.TryGetValue(pn, out var existing))
             {
                 if (existing.IsDeleted)
                 {
                     existing.IsDeleted = false;
-                    existing.PartName = name;
-                    existing.Specification = string.IsNullOrEmpty(spec) ? existing.Specification : spec;
-                    existing.Unit = unit;
-                    existing.PartType = type;
-                    existing.MslLevel = msl;
                 }
-                // 未删除的 → 跳过不更新
+                existing.PartName = name;
+                existing.Specification = string.IsNullOrEmpty(spec) ? existing.Specification : spec;
+                existing.Unit = unit;
+                existing.PartType = type;
+                existing.MslLevel = msl;
             }
             else
             {
-                _db.Parts.Add(new Part { PartNo = pn, PartName = name, Specification = spec, Unit = unit, PartType = type, MslLevel = msl, Status = 1 });
+                var newPart = new Part { PartNo = pn, PartName = name, Specification = spec, Unit = unit, PartType = type, MslLevel = msl, Status = 1 };
+                _db.Parts.Add(newPart);
+                partDict[pn] = newPart;
             }
             count++;
         }
@@ -176,13 +179,43 @@ public class PartService
     public async Task<List<object>> GetSubstitutesAsync(long partId)
     {
         var subs = await _db.PartSubstitutes.Where(s => s.OriginalPartId == partId && s.Status == 1).ToListAsync();
-        var result = new List<object>();
-        foreach (var sub in subs)
+        var subIds = subs.Select(s => s.SubstitutePartId).ToList();
+        var parts = await _db.Parts.Where(p => subIds.Contains(p.Id)).ToListAsync();
+        return parts.Select(p => (object)ToDict(p)).ToList();
+    }
+
+    public async Task<byte[]> ExportAsync(string? keyword)
+    {
+        var query = _db.Parts.AsQueryable();
+        if (!string.IsNullOrEmpty(keyword))
+            query = query.Where(p => p.PartNo.Contains(keyword) || p.PartName.Contains(keyword));
+
+        var items = await query.OrderBy(p => p.PartNo).ToListAsync();
+
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("物料数据");
+        ws.Cell(1, 1).Value = "料号";
+        ws.Cell(1, 2).Value = "名称";
+        ws.Cell(1, 3).Value = "规格";
+        ws.Cell(1, 4).Value = "单位";
+        ws.Cell(1, 5).Value = "类型";
+        ws.Cell(1, 6).Value = "MSL等级";
+        ws.Cell(1, 7).Value = "状态";
+        int row = 2;
+        foreach (var p in items)
         {
-            var p = await _db.Parts.FirstOrDefaultAsync(p => p.Id == sub.SubstitutePartId);
-            if (p != null) result.Add(ToDict(p));
+            ws.Cell(row, 1).Value = p.PartNo;
+            ws.Cell(row, 2).Value = p.PartName ?? "";
+            ws.Cell(row, 3).Value = p.Specification ?? "";
+            ws.Cell(row, 4).Value = p.Unit ?? "";
+            ws.Cell(row, 5).Value = p.PartType switch { 1 => "电子元器件", 2 => "PCB", 3 => "结构件", 4 => "包装材料", 5 => "辅料", _ => "" };
+            ws.Cell(row, 6).Value = (double)p.MslLevel;
+            ws.Cell(row, 7).Value = p.Status == 1 ? "启用" : "禁用";
+            row++;
         }
-        return result;
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
     }
 
     public async Task<byte[]> ExportTemplateAsync()

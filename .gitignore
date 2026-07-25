@@ -16,3 +16,4 @@ publish/
 *.tsbuildinfo
 mobile-android/.gradle/
 dip-system/api/html/
+dip-system-portable/

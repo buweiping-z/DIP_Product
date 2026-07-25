@@ -1,13 +1,15 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Pomelo.EntityFrameworkCore.MySql;
 using DIP.Api.Data;
 using DIP.Api.Services;
 using DIP.Api.Controllers;
+using DIP.Api.Converters;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -23,9 +25,27 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("http://localhost:3000", "http://127.0.0.1:3000")
               .AllowAnyMethod()
               .AllowAnyHeader();
+    });
+});
+
+// 1.5 登录限流
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 200;
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"code\":429,\"data\":null,\"message\":\"请求过于频繁，请稍后再试\"}", ct);
+    };
+    options.AddFixedWindowLimiter("login", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
     });
 });
 
@@ -36,6 +56,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // 3. JWT 认证
 var jwtSecret = builder.Configuration["Jwt:Secret"]!;
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "DIP.Api";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "DIP.Client";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -43,8 +65,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = false,
-            ValidateAudience = false,
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
@@ -53,6 +77,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 // 4. 注册服务
+builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddScoped<LocationService>();
@@ -70,6 +95,7 @@ builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<OutboundService>();
 builder.Services.AddScoped<RefillService>();
 builder.Services.AddScoped<SubstituteService>();
+builder.Services.AddScoped<ChangeoverService>();
 
 // 5. Controllers + Swagger
 builder.Services.AddControllers(options =>
@@ -81,120 +107,121 @@ builder.Services.AddControllers(options =>
 {
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    options.JsonSerializerOptions.Converters.Add(new LocalDateTimeConverter());
+    options.JsonSerializerOptions.Converters.Add(new NullableLocalDateTimeConverter());
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// 6. 启动时自动创建数据库表 + 种子数据
+// 确保新表存在（EnsureCreated 不会给已有 DB 建新表）
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.ExecuteSqlRawAsync(
+        "CREATE TABLE IF NOT EXISTS inline_changeovers (" +
+        "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+        "product_name VARCHAR(200) NOT NULL, " +
+        "part_no VARCHAR(200) NOT NULL, " +
+        "operator_id BIGINT NOT NULL DEFAULT 0, " +
+        "scanned_at DATETIME NOT NULL, " +
+        "tenant_id BIGINT NOT NULL DEFAULT 0, " +
+        "created_at DATETIME NOT NULL, " +
+        "updated_at DATETIME NULL, " +
+        "created_by BIGINT NULL, " +
+        "updated_by BIGINT NULL, " +
+        "is_deleted TINYINT NOT NULL DEFAULT 0)");
+    await db.Database.ExecuteSqlRawAsync(
+        "CREATE TABLE IF NOT EXISTS changeover_batches (" +
+        "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+        "batch_no VARCHAR(50) NOT NULL, " +
+        "product_name VARCHAR(200) NOT NULL, " +
+        "bom_json LONGTEXT NOT NULL, " +
+        "scanned_json LONGTEXT NOT NULL, " +
+        "status INT NOT NULL DEFAULT 1, " +
+        "operator_id BIGINT NOT NULL DEFAULT 0, " +
+        "tenant_id BIGINT NOT NULL DEFAULT 0, " +
+        "created_at DATETIME NOT NULL, " +
+        "updated_at DATETIME NULL, " +
+        "created_by BIGINT NULL, " +
+        "updated_by BIGINT NULL, " +
+        "is_deleted TINYINT NOT NULL DEFAULT 0)");
+    // 补建后期新增列
+    try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE inline_changeovers ADD COLUMN batch_no VARCHAR(50) NOT NULL DEFAULT ''"); } catch { }
+    try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE inline_changeovers ADD COLUMN operator_id BIGINT NOT NULL DEFAULT 0"); } catch { }
+    // 生连：生产月份 BOM 版本管理
+    try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE product_boms ADD COLUMN production_month VARCHAR(7) NULL"); } catch { }
+    try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE production_orders ADD COLUMN production_month VARCHAR(7) NULL"); } catch { }
 
-    // 补建 EnsureCreated 遗漏的新表（已有数据库新增实体不会自动建表）
-    db.Database.ExecuteSqlRaw(@"
-        CREATE TABLE IF NOT EXISTS order_products (
-            id BIGINT NOT NULL AUTO_INCREMENT,
-            order_id BIGINT NOT NULL,
-            product_id BIGINT NOT NULL DEFAULT 0,
-            product_name VARCHAR(200) NOT NULL DEFAULT '',
-            plan_qty DECIMAL(18,4) NOT NULL DEFAULT 1,
-            tenant_id BIGINT NOT NULL DEFAULT 0,
-            is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NULL,
-            created_by BIGINT NULL,
-            updated_by BIGINT NULL,
-            PRIMARY KEY (id),
-            INDEX idx_order_products_order (order_id),
-            CONSTRAINT fk_order_products_order FOREIGN KEY (order_id) REFERENCES production_orders(id)
-        )");
-
-    // 种子角色（幂等 — 已存在则跳过）
-    if (!db.Roles.Any(r => r.RoleCode == "admin"))
-        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "admin", RoleName = "系统管理员", Status = 1 });
-    if (!db.Roles.Any(r => r.RoleCode == "operator"))
-        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "operator", RoleName = "操作员", Status = 1 });
-    if (!db.Roles.Any(r => r.RoleCode == "leader"))
-        db.Roles.Add(new DIP.Api.Models.Role { RoleCode = "leader", RoleName = "班组长", Status = 1 });
-    db.SaveChanges();
-
-    var adminRoleId = db.Roles.First(r => r.RoleCode == "admin").Id;
-
-    // 种子管理员账号（不存在则创建，存在则修正RoleId和密码）
-    var adminUser = db.Operators.FirstOrDefault(o => o.Username == "admin");
-    if (adminUser == null)
+    // 清理软删除残留 + 已取消订单：旧版 DeleteAsync 只标记 IsDeleted=1/Status=4，现改为硬删除
+    async Task HardDeleteOrderAsync(AppDbContext ctx, long orderId)
     {
-        db.Operators.Add(new DIP.Api.Models.Operator
+        var orderProducts = await ctx.OrderProducts.IgnoreQueryFilters()
+            .Where(op => op.OrderId == orderId).ToListAsync();
+        ctx.OrderProducts.RemoveRange(orderProducts);
+
+        var bomItems = await ctx.BomItems.IgnoreQueryFilters()
+            .Where(b => b.OrderId == orderId).ToListAsync();
+        ctx.BomItems.RemoveRange(bomItems);
+
+        var closure = await ctx.OrderClosures.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(c => c.ProductionOrderId == orderId);
+        if (closure != null) ctx.OrderClosures.Remove(closure);
+
+        var preps = await ctx.PrepOrders.IgnoreQueryFilters()
+            .Where(p => p.ProductionOrderId == orderId).ToListAsync();
+        foreach (var prep in preps)
         {
-            Username = "admin",
-            RealName = "系统管理员",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
-            RoleId = adminRoleId,
-            Status = 1
-        });
-    }
-    else
-    {
-        if (adminUser.RoleId != adminRoleId)
-            adminUser.RoleId = adminRoleId;
-    }
-    db.SaveChanges();
+            var details = await ctx.PrepDetails.IgnoreQueryFilters()
+                .Where(d => d.PrepOrderId == prep.Id).ToListAsync();
+            var detailIds = details.Select(d => d.Id).ToList();
 
-    // 清理僵尸库存记录：关联的物料或库位已被软删除的 Inventory
-    var deletedPartIds = db.Parts.IgnoreQueryFilters().Where(p => p.IsDeleted).Select(p => p.Id).ToList();
-    var deletedLocIds = db.WarehouseLocations.IgnoreQueryFilters().Where(l => l.IsDeleted).Select(l => l.Id).ToList();
+            var scans = await ctx.PrepScanRecords.IgnoreQueryFilters()
+                .Where(s => detailIds.Contains(s.PrepDetailId)).ToListAsync();
+            ctx.PrepScanRecords.RemoveRange(scans);
 
-    if (deletedPartIds.Any() || deletedLocIds.Any())
-    {
-        var zombieInvs = db.Inventories.Where(i =>
-            deletedPartIds.Contains(i.PartId) || deletedLocIds.Contains(i.LocationId)).ToList();
+            ctx.PrepDetails.RemoveRange(details);
 
-        if (zombieInvs.Any())
-        {
-            // 扣减受影响库位的 CurrentQty（仅库位未被删除的情况）
-            var affectedLocIds = zombieInvs
-                .Where(i => !deletedLocIds.Contains(i.LocationId))
-                .Select(i => i.LocationId).Distinct().ToList();
-            var affectedLocs = db.WarehouseLocations.Where(l => affectedLocIds.Contains(l.Id)).ToList();
-
-            foreach (var inv in zombieInvs)
-            {
-                var loc = affectedLocs.FirstOrDefault(l => l.Id == inv.LocationId);
-                if (loc != null) loc.CurrentQty -= inv.TotalQty;
-                inv.IsDeleted = true;
-            }
-
-            // 同步清理关联的批次记录
-            var zombieLots = db.InventoryLots.Where(l =>
-                deletedPartIds.Contains(l.PartId) || deletedLocIds.Contains(l.LocationId)).ToList();
-            foreach (var lot in zombieLots) lot.IsDeleted = true;
-
-            db.SaveChanges();
+            var confirms = await ctx.OnlineConfirms.IgnoreQueryFilters()
+                .Where(c => c.PrepOrderId == prep.Id).ToListAsync();
+            ctx.OnlineConfirms.RemoveRange(confirms);
         }
+        ctx.PrepOrders.RemoveRange(preps);
     }
 
-    // 启动时重建冻结：有活跃订单就按创建时间从早到晚重新冻，没有就全部释放
-    var hasActiveOrders = db.ProductionOrders.Any(o => o.Status == 1 || o.Status == 2);
-    if (hasActiveOrders)
+    // 清理 IsDeleted=1 的订单
+    var deletedOrders = await db.ProductionOrders.IgnoreQueryFilters()
+        .Where(o => o.IsDeleted).ToListAsync();
+    foreach (var order in deletedOrders)
     {
-        var orderSvc = new OrderService(db);
-        orderSvc.RefreezeActiveOrdersAsync(0).Wait(); // 0 = 系统操作者
+        await HardDeleteOrderAsync(db, order.Id);
+        db.ProductionOrders.Remove(order);
     }
-    else
+    if (deletedOrders.Any())
     {
-        var frozenInvs = db.Inventories.Where(i => i.FrozenQty > 0).ToList();
-        foreach (var inv in frozenInvs) { inv.AvailableQty += inv.FrozenQty; inv.FrozenQty = 0; }
-        if (frozenInvs.Any()) db.SaveChanges();
+        await db.SaveChangesAsync();
+        Console.WriteLine($"已清理 {deletedOrders.Count} 条软删除残留订单及关联数据");
     }
 
-    db.SaveChanges();
+    // 清理 Status=4（已取消）的订单
+    var cancelledOrders = await db.ProductionOrders
+        .Where(o => o.Status == 4).ToListAsync();
+    foreach (var order in cancelledOrders)
+    {
+        await HardDeleteOrderAsync(db, order.Id);
+        db.ProductionOrders.Remove(order);
+    }
+    if (cancelledOrders.Any())
+    {
+        await db.SaveChangesAsync();
+        Console.WriteLine($"已清理 {cancelledOrders.Count} 条已取消订单及关联数据");
+    }
 }
 
-// 7. 中间件管道
+// 6. 中间件管道
 app.UseCors("AllowAll");
+app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())
 {

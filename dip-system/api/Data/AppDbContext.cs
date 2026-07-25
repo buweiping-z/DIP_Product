@@ -76,6 +76,10 @@ public class AppDbContext : DbContext
     // ===== 补料 =====
     public DbSet<RefillRecord> RefillRecords { get; set; }
 
+    // ===== 途中切替 =====
+    public DbSet<ChangeoverBatch> ChangeoverBatches { get; set; }
+    public DbSet<InlineChangeover> InlineChangeovers { get; set; }
+
     // ===== 审计 =====
     public DbSet<ScanRecord> ScanRecords { get; set; }
     public DbSet<SystemLog> SystemLogs { get; set; }
@@ -116,6 +120,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<OutboundOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<OutboundDetail>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<RefillRecord>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<ChangeoverBatch>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<InlineChangeover>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<SubstituteOrder>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<SubstituteDetail>().HasQueryFilter(e => !e.IsDeleted);
 

@@ -17,14 +17,21 @@ public class OrdersController : ControllerBase {
 
     [HttpGet]
     public async Task<IActionResult> GetList([FromQuery] int? status, [FromQuery] long? line_id,
+        [FromQuery] string? product_name, [FromQuery] string? production_month,
         [FromQuery] int page = 1, [FromQuery] int page_size = 20)
-        => Ok(ApiResponse.Ok(await _svc.GetListAsync(status, line_id, page, page_size)));
+        => Ok(ApiResponse.Ok(await _svc.GetListAsync(status, line_id, product_name, production_month, page, page_size)));
 
     [HttpGet("products")]
-    public async Task<IActionResult> GetProductNames() => Ok(ApiResponse.Ok(await _svc.GetProductNamesAsync()));
+    public async Task<IActionResult> GetProductNames([FromQuery] string? production_month)
+        => Ok(ApiResponse.Ok(await _svc.GetProductNamesAsync(production_month)));
+
+    [HttpGet("by-no")]
+    public async Task<IActionResult> GetByOrderNo([FromQuery] string order_no)
+        => Ok(ApiResponse.Ok(await _svc.GetByOrderNoAsync(order_no)));
 
     [HttpGet("product-bom")]
-    public async Task<IActionResult> GetProductBom([FromQuery] string name) => Ok(ApiResponse.Ok(await _svc.GetProductBomAsync(name)));
+    public async Task<IActionResult> GetProductBom([FromQuery] string name, [FromQuery] string? month)
+        => Ok(ApiResponse.Ok(await _svc.GetProductBomAsync(name, month)));
 
     [HttpGet("{id}/bom-status")]
     public async Task<IActionResult> GetBomStatus(long id) => Ok(ApiResponse.Ok(await _svc.GetBomStatusAsync(id)));
@@ -37,11 +44,13 @@ public class OrdersController : ControllerBase {
         using var wb = new ClosedXML.Excel.XLWorkbook();
         var ws = wb.Worksheets.Add("产品BOM模板");
         ws.Cell(1, 1).Value = "产品名称";
-        ws.Cell(1, 2).Value = "料号";
-        ws.Cell(1, 3).Value = "用量";
+        ws.Cell(1, 2).Value = "生连(YYYY_MM)";
+        ws.Cell(1, 3).Value = "料号";
+        ws.Cell(1, 4).Value = "用量";
         ws.Cell(2, 1).Value = "主板V2.2";
-        ws.Cell(2, 2).Value = "RES-0805-10K";
-        ws.Cell(2, 3).Value = 10;
+        ws.Cell(2, 2).Value = "2026_07";
+        ws.Cell(2, 3).Value = "RES-0805-10K";
+        ws.Cell(2, 4).Value = 10;
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "bom_template.xlsx");
@@ -55,7 +64,10 @@ public class OrdersController : ControllerBase {
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Dictionary<string, object?> data)
-        => Ok(ApiResponse.Ok(await _svc.CreateAsync(data, 1), "订单创建成功"));
+    {
+        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(ApiResponse.Ok(await _svc.CreateAsync(data, userId), "订单创建成功"));
+    }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(long id, [FromBody] Dictionary<string, object?> data)
@@ -76,6 +88,13 @@ public class OrdersController : ControllerBase {
         return Ok(ApiResponse.Ok(null, "状态更新成功"));
     }
 
+    [HttpPut("{id}/plan-qty")]
+    public async Task<IActionResult> UpdatePlanQty(long id, [FromBody] Dictionary<string, object?> data)
+    {
+        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(ApiResponse.Ok(await _svc.UpdatePlanQtyAsync(id, data, userId), "计划数量已更新"));
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(long id)
     {
@@ -91,6 +110,13 @@ public class OrdersController : ControllerBase {
         await file.CopyToAsync(ms);
         var count = await _svc.ImportBomAsync(ms.ToArray());
         return Ok(ApiResponse.Ok(new { count }, $"导入 {count} 条 BOM"));
+    }
+
+    [HttpGet("export-product-bom")]
+    public async Task<IActionResult> ExportProductBom()
+    {
+        var bytes = await _svc.ExportProductBomAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "product_bom_export.xlsx");
     }
 }
 

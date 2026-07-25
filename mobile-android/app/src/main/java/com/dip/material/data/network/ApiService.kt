@@ -65,7 +65,7 @@ interface ApiService {
     suspend fun getRefillBatchDetail(@Path("batchNo") batchNo: String): ApiResponse<Map<String, Any?>>
 
     @GET("api/v1/refill/parts")
-    suspend fun getRefillParts(@Query("product_name") productName: String): ApiResponse<List<PendingItem>>
+    suspend fun getRefillParts(@Query("product_name") productName: String? = null, @Query("order_no") orderNo: String? = null): ApiResponse<List<PendingItem>>
 
     @GET("api/v1/refill")
     suspend fun getRefillRecords(
@@ -118,6 +118,28 @@ interface ApiService {
     // ===== Online =====
     @POST("api/v1/online/confirm")
     suspend fun confirmOnline(@Body request: OnlineConfirmRequest): ApiResponse<Map<String, Any?>>
+
+    // ===== Changeover =====
+    @GET("api/v1/changeover/bom")
+    suspend fun getChangeoverBom(@Query("name") productName: String? = null, @Query("order_no") orderNo: String? = null): ApiResponse<List<Map<String, Any?>>>
+
+    @GET("api/v1/changeover/bom")
+    suspend fun getChangeoverBomByOrder(@Query("order_no") orderNo: String): ApiResponse<Map<String, Any?>>
+
+    @GET("api/v1/changeover/batches")
+    suspend fun getChangeoverBatches(): ApiResponse<List<Map<String, Any?>>>
+
+    @POST("api/v1/changeover/batches")
+    suspend fun createChangeoverBatch(@Body request: Map<String, @JvmSuppressWildcards Any?>): ApiResponse<Map<String, Any?>>
+
+    @GET("api/v1/changeover/batches/{batchNo}")
+    suspend fun getChangeoverBatchDetail(@Path("batchNo") batchNo: String): ApiResponse<Map<String, Any?>>
+
+    @POST("api/v1/changeover/batches/{batchNo}/scan")
+    suspend fun scanChangeoverBatch(@Path("batchNo") batchNo: String, @Body request: Map<String, @JvmSuppressWildcards Any?>): ApiResponse<Map<String, Any?>>
+
+    @POST("api/v1/changeover/batches/{batchNo}/complete")
+    suspend fun completeChangeoverBatch(@Path("batchNo") batchNo: String): ApiResponse<Map<String, Any?>>
 
     // ===== Substitute Orders =====
     @GET("api/v1/substitute/orders")

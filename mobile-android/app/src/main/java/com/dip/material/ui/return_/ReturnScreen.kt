@@ -1,6 +1,8 @@
 package com.dip.material.ui.return_
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -44,7 +46,7 @@ fun ReturnScreen(onBack: () -> Unit, viewModel: ReturnViewModel = viewModel()) {
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
             // PDA 扫码输入
             if (state.step <= 3) {
                 val hint = when (state.step) {
@@ -94,7 +96,7 @@ fun ReturnScreen(onBack: () -> Unit, viewModel: ReturnViewModel = viewModel()) {
 
             when (state.step) {
                 1 -> {
-                    Text("第1步：扣动扫码枪扳机扫描部品料号获取库位信息（未配广播可手动输入）", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    Text("第1步：扣动扫码枪扳机扫描部品料号获取库位信息", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                 }
 
@@ -115,7 +117,7 @@ fun ReturnScreen(onBack: () -> Unit, viewModel: ReturnViewModel = viewModel()) {
                             }
                         }
                     }
-                    Text("第2步：扣动扫码枪扳机扫描目标退料库位（未配广播可手动输入）", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    Text("第2步：扣动扫码枪扳机扫描目标退料库位", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                     TextButton(onClick = { viewModel.reset() }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("重新开始") }
                 }

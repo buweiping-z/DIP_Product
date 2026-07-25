@@ -4,24 +4,33 @@ import { showToast } from '../lib/toast';
 import HelpButton from '../lib/HelpButton';
 
 const PART_TYPES: Record<number, string> = { 1: '电子元器件', 2: 'PCB', 3: '结构件', 4: '包装材料', 5: '辅料' };
+const PAGE_SIZE = 50;
 
 export default function PartList() {
   const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [keyword, setKeyword] = useState('');
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ part_no: '', part_name: '', part_type: 1, unit: 'PCS', specification: '', msl_level: 0, status: 1 });
   const fileRef = useRef<HTMLInputElement>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  const fetchData = async () => {
-    const params: any = { page: 1, page_size: 100 };
-    if (keyword) params.keyword = keyword;
-    try { setData((await api.get('/parts', { params })).data?.items || []); } catch {}
+  const fetchData = async (p?: number) => {
+    setLoading(true);
+    try {
+      const params: any = { page: p ?? page, page_size: PAGE_SIZE };
+      if (keyword) params.keyword = keyword;
+      const res = await api.get('/parts', { params });
+      setData(res.data?.items || []);
+      setTotal(res.data?.total || 0);
+    } finally { setLoading(false); }
   };
   useEffect(() => { fetchData(); }, []);
 
-  const handleSearch = () => fetchData();
+  const handleSearch = () => { setPage(1); fetchData(1); };
 
   const openCreate = () => {
     setEditId(null); setForm({ part_no: '', part_name: '', part_type: 1, unit: 'PCS', specification: '', msl_level: 0, status: 1 }); setShowDialog(true);
@@ -37,6 +46,25 @@ export default function PartList() {
       else { await api.post('/parts', form); setMsg('创建成功'); }
       setShowDialog(false); fetchData();
     } catch {}
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await api.get('/parts/export', {
+        params: { keyword: keyword || undefined },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res as unknown as BlobPart]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'parts_export.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setMsg('导出失败: ' + (err.message || ''));
+    }
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,11 +89,20 @@ export default function PartList() {
         <div className="flex gap-2">
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新增物料</button>
           <button onClick={() => fileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入物料</button>
+          <button onClick={handleExport} className="bg-green-700 text-white px-4 py-2 rounded hover:bg-green-800">导出物料</button>
           <a href="/api/v1/parts/template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载模板</a>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
           <HelpButton title="物料管理" sections={[
             { title: '功能概述', items: ['管理SMT生产用物料档案，包括料号、名称、规格、MSL等级等属性', '支持Excel批量导入和模板下载', '支持软删除保护数据完整性，可恢复已删除物料'] },
-            { title: '操作流程', items: ['点击"新增物料"或"导入物料"创建物料档案', '填写料号、名称、规格、MSL等级等必填信息', '编辑或禁用不再使用的物料'] }
+            { title: '操作流程', items: ['点击"新增物料"或"导入物料"创建物料档案', '填写料号、名称、规格、MSL等级等必填信息', '编辑或禁用不再使用的物料'] },
+            { title: '导入规则', items: [
+              'Excel列顺序：料号 | 名称 | 规格 | 单位 | 类型 | MSL等级',
+              '料号和名称为必填，空白行自动跳过',
+              '单位默认为 PCS，类型默认为 电子元器件(1)',
+              '类型代码：1=电子元器件 2=PCB 3=结构件 4=包装材料 5=辅料',
+              '已存在的料号覆盖更新，已删除的自动恢复并更新',
+              '请先下载模板，按模板格式填写后导入'
+            ]}
           ]} />
         </div>
       </div>
@@ -76,26 +113,42 @@ export default function PartList() {
             onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
         </div>
         <button onClick={handleSearch} className="bg-blue-500 text-white px-4 py-1.5 rounded hover:bg-blue-600">查询</button>
-        <button onClick={() => { setKeyword(''); setTimeout(fetchData, 0); }} className="text-gray-500 px-3 py-1.5 hover:text-gray-700">清除</button>
+        <button onClick={() => { setKeyword(''); setPage(1); fetchData(1); }} className="text-gray-500 px-3 py-1.5 hover:text-gray-700">清除</button>
       </div>
       {msg && <div className="bg-blue-50 text-blue-800 p-2 rounded mb-3 text-sm">{msg}</div>}
 
-      <table className="w-full bg-white rounded-lg shadow">
-        <thead><tr className="bg-gray-50 text-left text-sm">
-          <th className="p-3">料号</th><th className="p-3">名称</th><th className="p-3">规格</th><th className="p-3">单位</th><th className="p-3">类型</th><th className="p-3">状态</th><th className="p-3 w-24">操作</th>
-        </tr></thead>
-        <tbody>{data.map(p => (
-          <tr key={p.id} className="border-t hover:bg-gray-50">
-            <td className="p-3 font-mono text-sm">{p.part_no}</td><td className="p-3">{p.part_name}</td>
-            <td className="p-3 text-sm text-gray-600">{p.specification || '-'}</td><td className="p-3">{p.unit}</td>
-            <td className="p-3 text-sm">{PART_TYPES[p.part_type] || p.part_type}</td>
-            <td className="p-3">{p.status === 1 ? <span className="text-green-600">启用</span> : <span className="text-red-500">禁用</span>}</td>
-            <td className="p-3 space-x-1">
-              <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-              <button onClick={() => handleDelete(p.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
-            </td>
-          </tr>))}</tbody>
-      </table>
+      {loading ? <p>加载中...</p> : (
+        <>
+          <table className="w-full bg-white rounded-lg shadow">
+            <thead><tr className="bg-gray-50 text-left text-sm">
+              <th className="p-3">料号</th><th className="p-3">名称</th><th className="p-3">规格</th><th className="p-3">单位</th><th className="p-3">类型</th><th className="p-3">状态</th><th className="p-3 w-24">操作</th>
+            </tr></thead>
+            <tbody>{data.map(p => (
+              <tr key={p.id} className="border-t hover:bg-gray-50">
+                <td className="p-3 font-mono text-sm">{p.part_no}</td><td className="p-3">{p.part_name}</td>
+                <td className="p-3 text-sm text-gray-600">{p.specification || '-'}</td><td className="p-3">{p.unit}</td>
+                <td className="p-3 text-sm">{PART_TYPES[p.part_type] || p.part_type}</td>
+                <td className="p-3">{p.status === 1 ? <span className="text-green-600">启用</span> : <span className="text-red-500">禁用</span>}</td>
+                <td className="p-3 space-x-1">
+                  <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                  <button onClick={() => handleDelete(p.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                </td>
+              </tr>))}</tbody>
+          </table>
+
+          <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
+            <span>共 <strong>{total}</strong> 条记录，第 <strong>{page}</strong> / <strong>{Math.ceil(total / PAGE_SIZE) || 1}</strong> 页</span>
+            <div className="flex gap-2">
+              <button onClick={() => { const p = page - 1; setPage(p); fetchData(p); }}
+                disabled={page <= 1}
+                className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed">上一页</button>
+              <button onClick={() => { const p = page + 1; setPage(p); fetchData(p); }}
+                disabled={page >= Math.ceil(total / PAGE_SIZE)}
+                className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed">下一页</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {showDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

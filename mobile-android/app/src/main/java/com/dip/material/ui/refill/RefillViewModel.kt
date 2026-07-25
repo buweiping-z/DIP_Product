@@ -100,14 +100,15 @@ class RefillViewModel(application: Application) : AndroidViewModel(application) 
             scanMsg = "恢复: ${data["product_name"]} (${parts.size}项)", msgOk = true) }
     }
 
-    fun scanProduct(barcode: String) {
+    fun scanOrder(barcode: String) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, scanMsg = null, boxPartNo = "", boxPart = null) }
-            repo.getRefillParts(barcode.trim()).fold(
+            val orderNo = barcode.trim()
+            repo.getRefillPartsByOrder(orderNo).fold(
                 onSuccess = { res ->
                     val items = res.data ?: emptyList()
                     if (items.isEmpty())
-                        _state.update { it.copy(isLoading = false, scanMsg = "未找到产品: ${barcode.trim()}", msgOk = false) }
+                        _state.update { it.copy(isLoading = false, scanMsg = "订单 $orderNo 无待补料明细", msgOk = false) }
                     else
                         _state.update { it.copy(isLoading = false, parts = items, selectedIds = emptySet(),
                             pickedIds = emptySet(), verifiedIds = emptySet(), step = 1) }
@@ -196,14 +197,28 @@ class RefillViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(isLoading = true) }
             repo.scanRefill(part.prepDetailId, part.prepOrderId, part.partNo, part.productName,
                 part.locationCodes.firstOrNull() ?: "", barcode, _state.value.batchNo, 3).fold(
-                onSuccess = { ScanSoundManager.playSuccess(); _state.update { it.copy(isLoading = false, verifiedIds = it.verifiedIds + part.prepDetailId, boxPartNo = "", boxPart = null, scanMsg = "已核对: ${part.partNo}", msgOk = true) } },
+                onSuccess = { ScanSoundManager.playSuccess(); _state.update { it.copy(isLoading = false, verifiedIds = it.verifiedIds + part.prepDetailId, scanMsg = "已核对: ${part.partNo}", msgOk = true) } },
                 onFailure = { e -> ScanSoundManager.playError(); _state.update { it.copy(isLoading = false, scanMsg = e.message, msgOk = false) } }
             )
         }
     }
 
-    fun goPickDone() { _state.update { it.copy(step = 3, verifiedIds = emptySet(), boxPartNo = "", boxPart = null, scanMsg = "请先扫料盒(≤14位)", msgOk = true) } }
+    fun goPickDone() {
+        val s = _state.value
+        val notPicked = s.selectedIds - s.pickedIds
+        if (notPicked.isNotEmpty()) {
+            _state.update { it.copy(scanMsg = "还有 ${notPicked.size} 项未取料", msgOk = false) }
+            return
+        }
+        _state.update { it.copy(step = 3, verifiedIds = emptySet(), boxPartNo = "", boxPart = null, scanMsg = "请先扫料盒(≤14位)", msgOk = true) }
+    }
     fun goDone() {
+        val s = _state.value
+        val notVerified = s.selectedIds - s.verifiedIds
+        if (notVerified.isNotEmpty()) {
+            _state.update { it.copy(scanMsg = "还有 ${notVerified.size} 项未核对", msgOk = false) }
+            return
+        }
         _state.value = RefillUiState()
         loadBatches()
     }

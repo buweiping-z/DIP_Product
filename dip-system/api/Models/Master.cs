@@ -186,6 +186,9 @@ public class ProductBom : BaseEntity
     [Column("product_name")]
     public string ProductName { get; set; } = string.Empty;
 
+    [Column("production_month")]
+    public string? ProductionMonth { get; set; }
+
     [Column("part_id")]
     public long PartId { get; set; }
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
 using DIP.Api.Models;
@@ -17,8 +18,9 @@ public class KitCheckResult
 public class PrepService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public PrepService(AppDbContext db) { _db = db; }
+    public PrepService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     public async Task<object> GetListAsync(int? status = null, long? lineId = null, int page = 1, int pageSize = 20)
     {
@@ -26,9 +28,22 @@ public class PrepService
         if (status.HasValue) query = query.Where(p => p.Status == status.Value);
         if (lineId.HasValue) query = query.Where(p => p.LineId == lineId.Value);
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(p => p.Id).Skip((page - 1) * pageSize).Take(pageSize)
+
+        // Load product names via order_products (multi-product orders)
+        var prepOrders = await query.OrderByDescending(p => p.Id).Skip((page - 1) * pageSize).Take(pageSize)
             .Include(p => p.Details).ToListAsync();
-        return new { total, page, page_size = pageSize, items = items.Select(ToDict) };
+        var orderIds = prepOrders.Select(p => p.ProductionOrderId).Distinct().ToList();
+        var productNames = await _db.OrderProducts
+            .Where(op => orderIds.Contains(op.OrderId))
+            .GroupBy(op => op.OrderId)
+            .Select(g => new { OrderId = g.Key, Names = string.Join(" / ", g.Select(op => op.ProductName)) })
+            .ToDictionaryAsync(x => x.OrderId, x => x.Names);
+        // Fallback: old single-product orders
+        var fallbackNames = await _db.ProductionOrders
+            .Where(o => orderIds.Contains(o.Id) && o.ProductName != null)
+            .ToDictionaryAsync(o => o.Id, o => o.ProductName!);
+
+        return new { total, page, page_size = pageSize, items = prepOrders.Select(p => ToDict(p, productNames, fallbackNames)) };
     }
 
     public async Task<object> GetByIdAsync(long prepId)
@@ -107,7 +122,7 @@ public class PrepService
         if (prep == null) throw AppException.NotFound($"备料单 {prepId} 不存在");
 
         var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prep.Id).ToListAsync();
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var results = new List<object>();
 
         foreach (var d in details)
@@ -285,7 +300,7 @@ public class PrepService
         if (prep == null) throw AppException.NotFound($"备料单 {prepId} 不存在");
         if (prep.Status != 1 && prep.Status != 2) throw AppException.Business("备料单状态不允许撤销");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId).ToListAsync();
         foreach (var d in details)
         {
@@ -330,13 +345,23 @@ public class PrepService
         return result;
     }
 
-    private static object ToDict(PrepOrder p) => new
+    private static object ToDict(PrepOrder p, Dictionary<long, string>? productNames = null, Dictionary<long, string>? fallbackNames = null)
     {
-        p.Id, order_no = p.OrderNo, production_order_id = p.ProductionOrderId,
-        line_id = p.LineId, status = p.Status, kit_check_result = p.KitCheckResult,
-        completed_at = p.CompletedAt, created_at = p.CreatedAt,
-        total_required_qty = p.Details.Sum(d => d.RequiredQty)
-    };
+        var pn = "";
+        if (productNames != null && productNames.TryGetValue(p.ProductionOrderId, out var names))
+            pn = names;
+        else if (fallbackNames != null && fallbackNames.TryGetValue(p.ProductionOrderId, out var fb))
+            pn = fb;
+
+        return new
+        {
+            p.Id, order_no = p.OrderNo, product_name = pn,
+            production_order_id = p.ProductionOrderId,
+            line_id = p.LineId, status = p.Status, kit_check_result = p.KitCheckResult,
+            completed_at = p.CompletedAt, created_at = p.CreatedAt,
+            total_required_qty = p.Details.Sum(d => d.RequiredQty)
+        };
+    }
 
     private static object DetailToDict(PrepDetail d) => new
     {

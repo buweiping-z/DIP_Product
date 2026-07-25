@@ -1,9 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
 import HelpButton from '../lib/HelpButton';
+import JsBarcode from 'jsbarcode';
 
 const STATUS_MAP = ['', '待备料', '待上线', '已完成', '已取消'];
+const PAGE_SIZE = 20;
 
 interface ProductInfo {
   product_id: number;
@@ -30,28 +32,77 @@ export default function OrderList() {
   const [products, setProducts] = useState<ProductInfo[]>([]);
   const [lines, setLines] = useState<any[]>([]);
   const [bomItems, setBomItems] = useState<any[]>([]);
-  const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2 });
+  const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2, production_month: '' });
   const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [bomPreview, setBomPreview] = useState<any[]>([]);
   const [detailData, setDetailData] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [showPlanQtyDialog, setShowPlanQtyDialog] = useState(false);
+  const [planQtyEditId, setPlanQtyEditId] = useState<number | null>(null);
+  const [planQtyProducts, setPlanQtyProducts] = useState<any[]>([]);
+  const [planQtyOrderInfo, setPlanQtyOrderInfo] = useState<any>(null);
 
-  const fetchData = async () => {
+  // 搜索分页状态
+  const [filterProductName, setFilterProductName] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const timerRef = useRef<any>(null);
+
+  const fetchData = useCallback(async (p?: number, pn?: string, pm?: string) => {
     setLoading(true);
-    try { setData((await api.get('/orders?page=1&page_size=50')).data?.items || []); }
-    finally { setLoading(false); }
-  };
+    try {
+      const params: any = { page: p ?? page, page_size: PAGE_SIZE };
+      const name = pn !== undefined ? pn : filterProductName;
+      const month = pm !== undefined ? pm : filterMonth;
+      if (name) params.product_name = name;
+      if (month) params.production_month = month;
+      const res = await api.get('/orders', { params });
+      setData(res.data?.items || []);
+      setTotal(res.data?.total || 0);
+    } finally { setLoading(false); }
+  }, [page, filterProductName, filterMonth]);
+
   useEffect(() => { fetchData(); }, []);
 
-  const loadMeta = async () => {
+  // 搜索防抖（直接用 api 避免 fetchData 闭包过期）
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setPage(1);
+      setLoading(true);
+      try {
+        const params: any = { page: 1, page_size: PAGE_SIZE };
+        if (filterProductName) params.product_name = filterProductName;
+        if (filterMonth) params.production_month = filterMonth;
+        const res = await api.get('/orders', { params });
+        setData(res.data?.items || []);
+        setTotal(res.data?.total || 0);
+      } finally { setLoading(false); }
+    }, 300);
+  }, [filterProductName, filterMonth]);
+
+  const loadMeta = async (month?: string) => {
     try {
-      const [pRes, lRes] = await Promise.all([api.get('/orders/products'), api.get('/lines')]);
+      const m = month !== undefined ? month : form.production_month;
+      const [pRes, lRes] = await Promise.all([
+        api.get('/orders/products', { params: { production_month: m || undefined } }),
+        api.get('/lines')
+      ]);
       setProducts((pRes.data || []) as ProductInfo[]);
       setLines(lRes.data || []);
       return lRes.data || [];
     } catch { return []; }
+  };
+
+  // 月份变更时重新加载产品列表
+  const reloadProducts = async (month: string) => {
+    try {
+      const res = await api.get('/orders/products', { params: { production_month: month || undefined } });
+      setProducts((res.data || []) as ProductInfo[]);
+    } catch {}
   };
 
   const openCreate = async () => {
@@ -59,8 +110,10 @@ export default function OrderList() {
     setBomItems([]);
     setSelectedProducts([]);
     setProductSearch('');
-    const loadedLines = await loadMeta();
-    setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2 });
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const loadedLines = await loadMeta(thisMonth);
+    setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2, production_month: thisMonth });
     setShowDialog(true);
   };
 
@@ -68,12 +121,12 @@ export default function OrderList() {
     setEditId(order.id);
     setSelectedProducts([]);
     setProductSearch('');
-    setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority });
+    setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority, production_month: order.production_month || '' });
 
     // 并行加载所有数据（用局部变量，避免 React state 闭包陷阱）
     try {
       const [pRes, lRes, bomRes, detailRes] = await Promise.all([
-        api.get('/orders/products'),
+        api.get('/orders/products', { params: { production_month: order.production_month || undefined } }),
         api.get('/lines'),
         api.get(`/orders/${order.id}/bom-status`),
         api.get(`/orders/${order.id}/details`)
@@ -152,13 +205,13 @@ export default function OrderList() {
 
   // 创建模式：实时计算合并 BOM 清单预览
   useEffect(() => {
-    if (editId || selectedProducts.length === 0) { setBomPreview([]); return; }
+    if (!showDialog || editId || selectedProducts.length === 0) { setBomPreview([]); return; }
     let cancelled = false;
     (async () => {
       const merged: Record<string, { part_no: string; required: number; stock: number }> = {};
       for (const sp of selectedProducts) {
         try {
-          const res = await api.get('/orders/product-bom', { params: { name: sp.product_name } });
+          const res = await api.get('/orders/product-bom', { params: { name: sp.product_name, month: form.production_month || undefined } });
           for (const item of (res.data || [])) {
             const key = item.part_no;
             const req = (item.quantity || 0) * sp.plan_qty;
@@ -173,7 +226,7 @@ export default function OrderList() {
       if (!cancelled) setBomPreview(Object.values(merged));
     })();
     return () => { cancelled = true; };
-  }, [selectedProducts, editId]);
+  }, [showDialog, selectedProducts, editId, form.production_month]);
 
   const handleSubmit = async () => {
     if (selectedProducts.length === 0) return alert('请至少选择一个产品');
@@ -183,6 +236,7 @@ export default function OrderList() {
       const payload = {
         line_id: form.line_id,
         priority: form.priority,
+        production_month: form.production_month || null,
         products: selectedProducts.map(sp => ({
           product_id: sp.product_id,
           product_name: sp.product_name,
@@ -198,17 +252,137 @@ export default function OrderList() {
         showToast(`订单创建成功！已生成 ${total} 个订单`, 'success');
       }
       setShowDialog(false);
-      fetchData();
+      setPage(1); fetchData(1);
     } catch {}
   };
 
   const handleStatusChange = async (id: number, status: number) => {
-    try { await api.put(`/orders/${id}/status`, { status }); fetchData(); } catch {}
+    try { await api.put(`/orders/${id}/status`, { status }); fetchData(page); } catch {}
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm('确认删除此订单？')) return;
-    try { await api.delete(`/orders/${id}`); fetchData(); } catch {}
+    try { await api.delete(`/orders/${id}`); fetchData(page); } catch {}
+  };
+
+  const openPlanQtyEdit = async (order: any) => {
+    try {
+      const res = await api.get(`/orders/${order.id}/details`);
+      if (res.code === 0 && res.data) {
+        setPlanQtyEditId(order.id);
+        setPlanQtyOrderInfo(order);
+        setPlanQtyProducts((res.data.order_products || []).map((op: any) => ({
+          product_name: op.product_name,
+          plan_qty: op.plan_qty,
+          old_plan_qty: op.plan_qty
+        })));
+        setShowPlanQtyDialog(true);
+      }
+    } catch {}
+  };
+
+  const handlePlanQtySubmit = async () => {
+    if (planQtyProducts.length === 0) return;
+    const changed = planQtyProducts.filter((p: any) => p.plan_qty !== p.old_plan_qty);
+    if (changed.length === 0) { setShowPlanQtyDialog(false); return; }
+    try {
+      await api.put(`/orders/${planQtyEditId}/plan-qty`, {
+        products: planQtyProducts.map((p: any) => ({
+          product_name: p.product_name,
+          plan_qty: p.plan_qty
+        }))
+      });
+      showToast('计划数量已更新，库存已同步调整', 'success');
+      setShowPlanQtyDialog(false);
+      setPage(1); fetchData(1);
+    } catch (err: any) { alert(err.message || '操作失败'); }
+  };
+
+  const handlePrint = async (id: number) => {
+    try {
+      const res = await api.get(`/orders/${id}/details`);
+      if (res.code !== 0 || !res.data) return;
+      const d = res.data;
+
+      // 订单号 Code 128 条形码
+      let orderBarcode = '';
+      try {
+        const canvas = document.createElement('canvas');
+        JsBarcode(canvas, d.order_no, { format: 'CODE128', height: 30, fontSize: 10, displayValue: true, margin: 2 });
+        orderBarcode = canvas.toDataURL('image/png');
+      } catch { orderBarcode = ''; }
+
+      // 预先生成产品名称的 Code 128 条形码（canvas → base64 data URL）
+      const productBarcodes: Record<string, string> = {};
+      for (const op of (d.order_products || [])) {
+        try {
+          const canvas = document.createElement('canvas');
+          JsBarcode(canvas, op.product_name, {
+            format: 'CODE128', height: 30, fontSize: 10,
+            displayValue: true, margin: 2,
+          });
+          productBarcodes[op.product_name] = canvas.toDataURL('image/png');
+        } catch { productBarcodes[op.product_name] = ''; }
+      }
+
+      const productsHtml = (d.order_products || []).map((op: any) => {
+        const bc = productBarcodes[op.product_name] || '';
+        const cell = bc
+          ? `<div style="display:flex;align-items:center;gap:8px"><span>${op.product_name}</span><img src="${bc}" style="height:30px;max-width:180px" /></div>`
+          : op.product_name;
+        return `<tr><td>${cell}</td><td style="text-align:right">${op.plan_qty}</td><td style="text-align:right"></td><td>${op.production_month || d.production_month || '-'}</td></tr>`;
+      }).join('');
+
+      const bomHtml = (d.bom_items || []).map((b: any, i: number) =>
+        `<tr><td>${i + 1}</td><td>${b.part_no}</td><td style="text-align:right">${b.required_qty}</td><td>${b.reference_designator || '-'}</td></tr>`
+      ).join('');
+
+      const prepHtml = (d.prep_orders || []).map((p: any) => {
+        const statusMap = ['', '待备料', '待上线', '已完成', '已取消'];
+        return `<tr><td>${p.order_no}</td><td>${statusMap[p.status] || p.status}</td><td>${p.kit_check_result || '-'}</td></tr>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>订单 ${d.order_no}</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; color: #333; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .info { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; font-size: 13px; }
+  .info div { min-width: 140px; }
+  .info span { color: #666; }
+  h2 { font-size: 14px; margin: 16px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+  th { background: #f5f5f5; text-align: left; padding: 6px; border: 1px solid #ddd; }
+  td { padding: 6px; border: 1px solid #ddd; }
+  .empty { color: #999; font-size: 12px; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+<h1>订单详情 — ${d.order_no}</h1>
+${orderBarcode ? `<div style="margin:4px 0 8px"><img src="${orderBarcode}" style="height:30px;max-width:200px" /></div>` : ''}
+<div class="info">
+  <div><span>产线：</span>${d.line_name || d.line_id}</div>
+  <div><span>产品：</span>${d.product_name}</div>
+  <div><span>生连：</span>${d.production_month || '-'}</div>
+  <div><span>计划数量：</span>${d.plan_qty}</div>
+  <div><span>优先级：</span>${['', '低', '中', '高'][d.priority] || d.priority}</div>
+  <div><span>状态：</span>${['', '待备料', '待上线', '已完成', '已取消'][d.status] || d.status}</div>
+  <div><span>创建时间：</span>${(d.created_at || '').slice(0, 19)}</div>
+</div>
+
+<h2>产品明细</h2>
+${(d.order_products || []).length > 0 ? `<table><thead><tr><th>产品名称</th><th style="text-align:right">计划数量</th><th style="text-align:right">生产数量</th><th>生连</th></tr></thead><tbody>${productsHtml}</tbody></table>` : '<p class="empty">无产品明细</p>'}
+
+<h2>BOM 物料清单</h2>
+${(d.bom_items || []).length > 0 ? `<table><thead><tr><th>#</th><th>料号</th><th style="text-align:right">需求数量</th><th>位号</th></tr></thead><tbody>${bomHtml}</tbody></table>` : '<p class="empty">无 BOM 数据</p>'}
+
+<h2>关联备料单</h2>
+${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th>状态</th><th>齐套结果</th></tr></thead><tbody>${prepHtml}</tbody></table>` : '<p class="empty">无关联备料单</p>'}
+
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
+
+      const w = window.open('', '_blank', 'width=800,height=600');
+      if (w) { w.document.write(html); w.document.close(); }
+    } catch {}
   };
 
   const fetchDetail = async (id: number) => {
@@ -224,7 +398,7 @@ export default function OrderList() {
     const fd = new FormData(); fd.append('file', file);
     try {
       const res = await api.post('/orders/import-bom', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
-      setMsg(`BOM 导入成功: ${res.data?.count || 0} 条`); fetchData();
+      setMsg(`BOM 导入成功: ${res.data?.count || 0} 条`); setPage(1); fetchData(1);
     } catch (err: any) { setMsg('导入失败: ' + (err.response?.data?.message || err.message)); }
     e.target.value = '';
   };
@@ -240,38 +414,90 @@ export default function OrderList() {
         <div className="flex gap-2">
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">新建订单</button>
           <button onClick={() => bomFileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入产品BOM</button>
+          <button onClick={async () => {
+            try {
+              const res = await api.get('/orders/export-product-bom', { responseType: 'blob' });
+              const url = URL.createObjectURL(res.data);
+              const a = document.createElement('a'); a.href = url; a.download = 'product_bom_export.xlsx'; a.click();
+              URL.revokeObjectURL(url);
+            } catch { /* handled by interceptor */ }
+          }} className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">导出产品BOM</button>
           <a href="/api/v1/orders/bom-template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载BOM模板</a>
           <input ref={bomFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleBomImport} />
         </div>
       </div>
       {msg && <div className="bg-blue-50 text-blue-800 p-2 rounded mb-3 text-sm">{msg}</div>}
 
+      {/* Search bar */}
+      <div className="bg-white rounded-lg shadow p-4 mb-4 flex gap-4 items-end">
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">产品名称</label>
+          <input className="border rounded px-3 py-1.5 w-48" placeholder="模糊搜索产品名称" value={filterProductName}
+            onChange={e => setFilterProductName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (() => { setPage(1); fetchData(1); })()} />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">生连</label>
+          <input className="border rounded px-3 py-1.5 w-36" placeholder="YYYY_MM" value={filterMonth}
+            onChange={e => setFilterMonth(e.target.value)} onKeyDown={e => e.key === 'Enter' && (() => { setPage(1); fetchData(1); })()} />
+        </div>
+        <button onClick={() => { setFilterProductName(''); setFilterMonth(''); }}
+          className="text-gray-500 px-3 py-1.5 hover:text-gray-700">清除</button>
+      </div>
+
       {loading ? <p>加载中...</p> : (
+        <>
         <table className="w-full bg-white rounded-lg shadow">
           <thead><tr className="bg-gray-50 text-left text-sm">
-            <th className="p-3">订单号</th><th className="p-3">产品名称</th><th className="p-3">计划数量</th>
+            <th className="p-3">订单号</th><th className="p-3">产品名称</th><th className="p-3">生连</th><th className="p-3">计划数量</th>
             <th className="p-3">优先级</th><th className="p-3">状态</th><th className="p-3">创建时间</th><th className="p-3 w-56">操作</th>
           </tr></thead>
           <tbody>{data.map(o => (
             <tr key={o.id} className="border-t hover:bg-gray-50">
               <td className="p-3 text-blue-600 font-mono text-sm">{o.order_no}</td>
               <td className="p-3">{o.product_name}</td>
+              <td className="p-3">{o.production_month || '-'}</td>
               <td className="p-3">{o.plan_qty}</td>
               <td className="p-3">{['', '低', '中', '高'][o.priority] || o.priority}</td>
               <td className="p-3">{STATUS_MAP[o.status] || o.status}</td>
               <td className="p-3 text-sm text-gray-500">{o.created_at?.slice(0, 19)}</td>
               <td className="p-3 space-x-1 whitespace-nowrap">
                 <button onClick={() => fetchDetail(o.id)} className="text-blue-600 hover:text-blue-800 text-sm">详情</button>
-                {o.status !== 3 && o.status !== 4 && (
+                <button onClick={() => handlePrint(o.id)} className="text-blue-600 hover:text-blue-800 text-sm">打印</button>
+                {o.status !== 3 && o.status !== 4 ? (
                   <>
                     <button onClick={() => openEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
                     <button onClick={() => handleDelete(o.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
                   </>
+                ) : o.status === 3 && (
+                  <button onClick={() => openPlanQtyEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
                 )}
               </td>
             </tr>
           ))}</tbody>
         </table>
+
+        {/* Pagination */}
+        {(() => {
+          const totalPages = Math.ceil(total / PAGE_SIZE);
+          return (
+            <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
+              <span>共 <strong>{total}</strong> 条记录，第 <strong>{page}</strong> / <strong>{totalPages || 1}</strong> 页</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { const p = page - 1; setPage(p); fetchData(p); }}
+                  disabled={page <= 1}
+                  className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >上一页</button>
+                <button
+                  onClick={() => { const p = page + 1; setPage(p); fetchData(p); }}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >下一页</button>
+              </div>
+            </div>
+          );
+        })()}
+        </>
       )}
 
       {/* Create/Edit Dialog */}
@@ -279,13 +505,33 @@ export default function OrderList() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[700px] max-h-[90vh] overflow-auto">
             <h2 className="text-xl font-bold mb-4">{editId ? '编辑订单' : '新建订单'}</h2>
-            <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="grid grid-cols-3 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium mb-1">产线</label>
                 <select className="w-full border p-2 rounded" value={form.line_id}
                   onChange={e => setForm({ ...form, line_id: Number(e.target.value) })}>
                   {lines.map((l: any) => <option key={l.id} value={l.id}>{l.line_name}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">生连</label>
+                <div className="flex items-center gap-1">
+                  <button type="button" className="px-2 py-2 border rounded hover:bg-gray-100 text-sm"
+                    onClick={() => {
+                      const [y, m] = form.production_month.split('_').map(Number);
+                      const d = new Date(y, m - 2, 1);
+                      const nm = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`;
+                      setForm({ ...form, production_month: nm }); reloadProducts(nm);
+                    }}>←</button>
+                  <span className="px-3 py-2 font-mono text-sm min-w-[80px] text-center">{form.production_month}</span>
+                  <button type="button" className="px-2 py-2 border rounded hover:bg-gray-100 text-sm"
+                    onClick={() => {
+                      const [y, m] = form.production_month.split('_').map(Number);
+                      const d = new Date(y, m, 1);
+                      const nm = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`;
+                      setForm({ ...form, production_month: nm }); reloadProducts(nm);
+                    }}>→</button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">优先级</label>
@@ -531,6 +777,72 @@ export default function OrderList() {
                 ))}</tbody>
               </table>
             ) : <p className="text-gray-400 text-sm">无关联备料单</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Plan Qty Edit Dialog (已完成订单) */}
+      {showPlanQtyDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[500px]">
+            <h2 className="text-xl font-bold mb-4">调整计划数量</h2>
+            <div className="mb-4 text-sm text-gray-600">
+              <p>订单号：<span className="font-mono">{planQtyOrderInfo?.order_no}</span></p>
+              <p className="mt-1 text-orange-500">注意：调整已完成订单的计划数量将同步增减库存，并重新冻结活跃订单</p>
+            </div>
+
+            <table className="w-full border text-sm mb-4">
+              <thead><tr className="bg-gray-100">
+                <th className="p-2 text-left">产品名称</th>
+                <th className="p-2 text-right w-28">原计划数量</th>
+                <th className="p-2 text-right w-28">新计划数量</th>
+              </tr></thead>
+              <tbody>
+                {planQtyProducts.map((p: any, idx: number) => (
+                  <tr key={idx} className="border-t">
+                    <td className="p-2">{p.product_name}</td>
+                    <td className="p-2 text-right text-gray-500">{p.old_plan_qty}</td>
+                    <td className="p-2 text-right">
+                      <input
+                        type="number"
+                        className="w-20 border p-1 rounded text-right"
+                        min={1}
+                        value={p.plan_qty}
+                        onChange={e => {
+                          const updated = [...planQtyProducts];
+                          updated[idx] = { ...updated[idx], plan_qty: Number(e.target.value) || 1 };
+                          setPlanQtyProducts(updated);
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Delta summary */}
+            {planQtyProducts.some((p: any) => p.plan_qty !== p.old_plan_qty) && (
+              <div className="mb-4 p-3 bg-blue-50 rounded text-sm">
+                {planQtyProducts.filter((p: any) => p.plan_qty !== p.old_plan_qty).map((p: any, idx: number) => {
+                  const d = p.plan_qty - p.old_plan_qty;
+                  return (
+                    <p key={idx}>
+                      {p.product_name}：{p.old_plan_qty} → {p.plan_qty}
+                      <span className={d > 0 ? 'text-red-600' : 'text-green-600'}>
+                        {' '}({d > 0 ? '+' : ''}{d}，库存将{d > 0 ? '扣减' : '退回'})
+                      </span>
+                    </p>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowPlanQtyDialog(false)}
+                className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
+              <button onClick={handlePlanQtySubmit}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认调整</button>
+            </div>
           </div>
         </div>
       )}

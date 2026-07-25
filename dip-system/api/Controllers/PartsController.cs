@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DIP.Api.Models;
 using DIP.Api.Services;
@@ -5,6 +6,7 @@ using DIP.Api.Services;
 namespace DIP.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/parts")]
 public class PartsController : ControllerBase
 {
@@ -53,6 +55,13 @@ public class PartsController : ControllerBase
     {
         var bytes = await _svc.ExportTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "parts_template.xlsx");
+    }
+
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? keyword)
+    {
+        var bytes = await _svc.ExportAsync(keyword);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "parts_export.xlsx");
     }
 
     [HttpGet("{id}/substitutes")]

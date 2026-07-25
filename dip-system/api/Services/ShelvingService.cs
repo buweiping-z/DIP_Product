@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using DIP.Api.Data;
 using DIP.Api.Models;
@@ -7,8 +8,9 @@ namespace DIP.Api.Services;
 public class ShelvingService
 {
     private readonly AppDbContext _db;
+    private readonly IServiceProvider _sp;
 
-    public ShelvingService(AppDbContext db) { _db = db; }
+    public ShelvingService(AppDbContext db, IServiceProvider sp) { _db = db; _sp = sp; }
 
     public async Task<object> CreateBatchAsync(long targetLocationId, long operatorId)
     {
@@ -54,7 +56,7 @@ public class ShelvingService
         var items = await _db.ShelvingBatchItems.Where(i => i.BatchId == batchId).ToListAsync();
         if (items.Count == 0) throw AppException.Business("批次无项目");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         foreach (var item in items)
         {
             if (item.SourceLocationId.HasValue)
@@ -79,7 +81,7 @@ public class ShelvingService
         var batch = await _db.ShelvingBatches.FirstOrDefaultAsync(b => b.Id == batchId);
         if (batch == null || batch.Status != 2) throw AppException.Business("上架批次状态不允许撤销");
 
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var loadings = await _db.MaterialShelvings.Where(m => m.TargetLocationId == batch.TargetLocationId && m.Status == 1).ToListAsync();
         foreach (var loading in loadings)
         {
@@ -142,12 +144,12 @@ public class ShelvingService
         }
 
         // 3. 库存入库（生成默认批次号确保 InventoryLot 创建）
-        var invSvc = new InventoryService(_db);
+        var invSvc = _sp.GetRequiredService<InventoryService>();
         var batchNo = $"SN{DateTime.UtcNow:yyyyMMddHHmmss}";
         await invSvc.AddCoreAsync(part.Id, loc.Id, quantity, batchNo, operatorId, "ShelvingDirect");
 
         // ★ 上架后触发活跃订单重新冻结（新库存按先到先得分给待补货订单）
-        var orderSvc = new OrderService(_db);
+        var orderSvc = _sp.GetRequiredService<OrderService>();
         await orderSvc.RefreezeActiveOrdersAsync(operatorId);
 
         // 4. 写上架记录

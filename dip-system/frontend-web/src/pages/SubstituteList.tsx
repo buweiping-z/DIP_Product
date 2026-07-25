@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../lib/api';
 import { showToast } from '../lib/toast';
 import HelpButton from '../lib/HelpButton';
 
 const STATUS_MAP: Record<number, string> = { 1: '待确认', 2: '已完成', 3: '已取消' };
+const PAGE_SIZE = 20;
 
 interface DetailRow {
   key: number; // 前端临时ID
@@ -26,6 +27,12 @@ export default function SubstituteList() {
   // 编辑时已确认的明细（只读）
   const [existingConfirmed, setExistingConfirmed] = useState<any[]>([]);
 
+  // 搜索分页
+  const [filterPartNo, setFilterPartNo] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const timerRef = useRef<any>(null);
+
   function emptyRow(key: number): DetailRow {
     return { key, original_part_id: 0, substitute_part_id: 0, source_location_id: 0, target_location_id: 0, quantity: 0 };
   }
@@ -41,13 +48,25 @@ export default function SubstituteList() {
     try { setParts((await api.get('/parts?page=1&page_size=500')).data?.items || []); } catch {}
   }, []);
 
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (p?: number, pn?: string) => {
     setLoading(true);
-    try { setOrders((await api.get('/substitute/orders?page=1&page_size=50')).data?.items || []); }
-    finally { setLoading(false); }
-  }, []);
+    try {
+      const params: any = { page: p ?? page, page_size: PAGE_SIZE };
+      const search = pn !== undefined ? pn : filterPartNo;
+      if (search) params.search = search;
+      const res = await api.get('/substitute/orders', { params });
+      setOrders(res.data?.items || []);
+      setTotal(res.data?.total || 0);
+    } finally { setLoading(false); }
+  }, [page, filterPartNo]);
 
   useEffect(() => { fetchOrders(); }, []);
+
+  // 搜索防抖
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { setPage(1); fetchOrders(1); }, 300);
+  }, [filterPartNo]);
 
   const openCreate = () => {
     setEditId(null); setExistingConfirmed([]);
@@ -132,13 +151,32 @@ export default function SubstituteList() {
         if (res.code !== 0) { setMsg(res.message || '操作失败'); return; }
         showToast('订单创建成功', 'success');
       }
-      setShowDialog(false); fetchOrders();
+      setShowDialog(false); setPage(1); fetchOrders(1);
     } catch {}
   };
 
   const handleCancel = async (id: number) => {
     if (!confirm('确认取消此订单？')) return;
-    try { const res = await api.post(`/substitute/orders/${id}/cancel`); if (res.code !== 0) { showToast(res.message || '操作失败', 'error'); return; } showToast('订单已取消', 'success'); fetchOrders(); } catch {}
+    try { const res = await api.post(`/substitute/orders/${id}/cancel`); if (res.code !== 0) { showToast(res.message || '操作失败', 'error'); return; } showToast('订单已取消', 'success'); fetchOrders(page); } catch {}
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await api.get('/substitute/orders/export', {
+        params: { search: filterPartNo || undefined },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res as unknown as BlobPart]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'substitute_export.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setMsg('导出失败: ' + (err.message || ''));
+    }
   };
 
   const statusTag = (s: number) => {
@@ -153,6 +191,7 @@ export default function SubstituteList() {
         <h1 className="text-2xl font-bold">替代料移库</h1>
         <div className="flex gap-2">
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm">新建移库订单</button>
+          <button onClick={handleExport} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm">导出Excel</button>
           <HelpButton title="替代料移库" sections={[
             { title: '功能概述', items: ['管理替代料移库订单，一个订单可包含多条移库明细', '网页端创建订单后，手机端逐袋扫码确认', '全部确认后系统自动执行移库并刷新冻结'] },
             { title: '操作流程', items: ['1. 网页端新建订单 → 添加多行明细（替代部品+来源库位 → 缺料部品+目标库位 → 数量）', '2. 手机端选择订单 → 扫替代部品条码匹配明细 → 逐一确认', '3. 全部确认后提交 → 系统自动完成库存移库'] }
@@ -162,8 +201,20 @@ export default function SubstituteList() {
 
       {msg && <div className={`p-3 rounded mb-4 text-sm ${msg.includes('成功') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{msg}</div>}
 
+      {/* Search bar */}
+      <div className="bg-white rounded-lg shadow p-4 mb-4 flex gap-4 items-end">
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">料号</label>
+          <input className="border rounded px-3 py-1.5 w-56" placeholder="模糊搜索替代料号/缺料料号" value={filterPartNo}
+            onChange={e => setFilterPartNo(e.target.value)} onKeyDown={e => e.key === 'Enter' && (() => { setPage(1); fetchOrders(1); })()} />
+        </div>
+        <button onClick={() => { setFilterPartNo(''); }}
+          className="text-gray-500 px-3 py-1.5 hover:text-gray-700">清除</button>
+      </div>
+
       {/* 订单列表 */}
       {loading ? <p>加载中...</p> : (
+        <>
         <table className="w-full bg-white rounded-lg shadow text-sm">
           <thead><tr className="bg-gray-50 text-left">
             <th className="p-3">订单号</th><th className="p-3 text-center">明细数/已确认</th>
@@ -186,6 +237,29 @@ export default function SubstituteList() {
             </tr>
           ))}</tbody>
         </table>
+
+        {/* Pagination */}
+        {(() => {
+          const totalPages = Math.ceil(total / PAGE_SIZE);
+          return (
+            <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
+              <span>共 <strong>{total}</strong> 条记录，第 <strong>{page}</strong> / <strong>{totalPages || 1}</strong> 页</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { const p = page - 1; setPage(p); fetchOrders(p); }}
+                  disabled={page <= 1}
+                  className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >上一页</button>
+                <button
+                  onClick={() => { const p = page + 1; setPage(p); fetchOrders(p); }}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >下一页</button>
+              </div>
+            </div>
+          );
+        })()}
+        </>
       )}
 
       {/* 新建/编辑弹窗 */}

@@ -395,3 +395,45 @@ dotnet publish -c Release --self-contained -r win-x64
 - 设计："升=对 / 降=错"音频语法 + 陡方波高 RMS 使 NG 比 OK 更刺、更狠、更醒目；5ms 软起音+指数衰减防爆音。纯标准库生成（`gen_scan_sounds.py`），旧音效备份于 scan-sound-backup/。
 - ScanSoundManager 注释同步更新；播放仍走 USAGE_ALARM 闹钟通道最大音量。
 - 移除扫码调试页 `DebugScanScreen`（首页入口与 debug_scan 路由一并撤销，诊断已完成）。
+
+### 2026-07-25 — 订单删除改为硬删除 + 扫码去重修复 + 首页并行加载 + ChangeTracker 跨阶段清理
+
+**订单删除改为硬删除：**
+- `DeleteAsync` 从软删除（`IsDeleted=1`）改为 `_db.Remove()` 物理删除
+- 级联清理：OrderProducts → BomItems → OrderClosures → PrepScanRecords → PrepDetails → OnlineConfirms → PrepOrders → ProductionOrder
+- 启动时自动清理历史残留：`IsDeleted=1` 的软删除订单 + `Status=4` 的已取消订单
+
+**RefreezeActiveOrdersAsync ChangeTracker 清理：**
+- Phase 1 解冻 `SaveChangesAsync` 后加 `_db.ChangeTracker.Clear()`，再进入 Phase 2 重新冻结
+- 避免跨阶段 entity snapshot 污染导致 Inventory.FrozenQty 修改未持久化
+
+**扫码广播去重修复（根因）：**
+- 原去重逻辑放在 `ScanBroadcastReceiver` 实例字段中，但 Android 每次广播都新建 BroadcastReceiver 实例，字段从未保留
+- 改为在 `ScanBus` 单例中维护 `lastCode`/`lastTime`，所有 BroadcastReceiver 实例共享，500ms 去重真正生效
+
+**首页加载优化：**
+- `HomeViewModel.loadPendingTasks()` 6 个 API 从串行改为 `async`/`awaitAll` 并行
+- 移除 `init{}` 中的 `loadPendingTasks()` 避免和 `LaunchedEffect` 重复加载
+- `OnlineViewModel.selectOrder` 备料明细 + `clearSelection` 提交确认并行化
+
+**途中切替界面增强：**
+- 网页端：产品名称 + 料号双输入框模糊搜索 + 删除按钮；页面改为展示批次列表
+- 后端：新增 `GET /batches/list` 分页搜索 + `DELETE /batches/{batchNo}` 硬删除
+
+**Vite 代理修复：**
+- `localhost` → `127.0.0.1` 解决 Windows IPv6 优先导致 ECONNREFUSED
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 62 | 切替扫描后出现多个重复批次 | Android BroadcastReceiver 每次新建实例，去重字段不保留 | 去重逻辑移到 ScanBus 单例 |
+| 63 | 订单删除后库存冻结为0，其他订单未重新冻结 | ChangeTracker 跨 Phase 实体快照不一致 | Phase1 SaveChanges 后 ChangeTracker.Clear() |
+| 64 | 手机首页加载3~6秒 | 6个API串行调用，总耗时累加 | async/awaitAll 并行 |
+| 65 | 前端网页 ECONNREFUSED | localhost 解析为 IPv6 ::1 但后端只绑 IPv4 | 改为 127.0.0.1 |
+| 66 | 删除订单仪表盘统计不正确 | 软删除数据仍占统计 | 改为硬删除 + 启动清理历史残留 |
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `efcore-changetracker-clear-between-phases` — ChangeTracker.Clear() 跨 SaveChanges 清空快照
+- `android-broadcastreceiver-instance-lifecycle-dedup` — BroadcastReceiver 实例字段不保留
+- `homeviewmodel-parallel-api-loading` — Kotlin async/awaitAll 并行加载模式

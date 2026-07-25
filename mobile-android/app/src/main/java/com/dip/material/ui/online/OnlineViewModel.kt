@@ -7,6 +7,8 @@ import com.dip.material.data.models.OrderItem
 import com.dip.material.data.models.PrepDetailItem
 import com.dip.material.data.repository.AppRepository
 import com.dip.material.utils.ScanSoundManager
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,12 +58,12 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
                         _state.update { it.copy(isLoading = false, scanMsg = "该订单无备料单") }
                         return@fold
                     }
-                    val allDetails = mutableListOf<PrepDetailItem>()
-                    for (p in prepOrders) {
-                        repo.getPrepDetail(p.id).fold(
-                            onSuccess = { pr -> pr.data?.details?.let { allDetails.addAll(it) } },
-                            onFailure = {}
-                        )
+                    // 并行加载所有备料单明细
+                    val detailsResults = prepOrders.map { p ->
+                        async { repo.getPrepDetail(p.id) }
+                    }.awaitAll()
+                    val allDetails = detailsResults.flatMap { r ->
+                        r.getOrNull()?.data?.details ?: emptyList()
                     }
                     // 从后端 online_consumed_qty 恢复历史已确认数，退出再进不需要重新扫描
                     val initialCounts = mutableMapOf<Int, Int>()
@@ -128,18 +130,18 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
         // 先提交本次新增的确认 → 等后台处理完（最后一条会把订单改为已完成）
         // → 再刷新订单列表，确保已完成订单不再显示
         viewModelScope.launch {
-            var hasError = false
             if (newScans.isNotEmpty()) {
-                for ((detailId, count) in newScans) {
-                    val res = repo.confirmOnline(detailId = detailId.toLong(), barcode = "", quantity = count.toDouble())
-                    if (res.isFailure) {
-                        _state.update { it.copy(scanMsg = "提交失败: ${res.exceptionOrNull()?.message}") }
-                        hasError = true
-                        break
-                    }
+                // 并行提交本次新增确认，所有 confirmOnline 独立不互相依赖
+                val results = newScans.map { (detailId, count) ->
+                    async { detailId to repo.confirmOnline(detailId = detailId.toLong(), barcode = "", quantity = count.toDouble()) }
+                }.awaitAll()
+                val failures = results.mapNotNull { (id, r) -> if (r.isFailure) "明细$id: ${r.exceptionOrNull()?.message}" else null }
+                if (failures.isNotEmpty()) {
+                    _state.update { it.copy(scanMsg = "提交失败: ${failures.joinToString("; ")}") }
+                    return@launch
                 }
             }
-            if (!hasError) loadOrders()
+            loadOrders()
         }
     }
     fun clearMsg() { _state.update { it.copy(scanMsg = null) } }

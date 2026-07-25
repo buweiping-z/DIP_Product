@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace DIP.Api.Models;
@@ -25,6 +26,7 @@ public class Inventory : BaseEntity
     [Column("inspecting_qty")]
     public decimal InspectingQty { get; set; }
 
+    [ConcurrencyCheck]
     [Column("version")]
     public int Version { get; set; }
 
@@ -70,6 +72,7 @@ public class InventoryLot : BaseEntity
     [Column("origin_type")]
     public int OriginType { get; set; } = 1;
 
+    [ConcurrencyCheck]
     [Column("version")]
     public int Version { get; set; }
 

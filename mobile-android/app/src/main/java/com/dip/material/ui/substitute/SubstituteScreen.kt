@@ -20,7 +20,6 @@ import com.dip.material.utils.ScanSoundManager
 @Composable
 fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    // PDA 扫码输入由 BarcodeTextField 自管理
 
     // 扫码结果音效
     LaunchedEffect(state.scanEventId) {
@@ -33,7 +32,7 @@ fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewMo
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (state.selectedOrder != null) "替代料移库" else "替代料移库") },
+                title = { Text("替代料移库") },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (state.selectedOrder != null) viewModel.clearSelection() else onBack()
@@ -44,14 +43,21 @@ fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewMo
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (state.selectedOrder != null) {
+            val order = state.selectedOrder
+            if (order != null) {
                 // ===== 扫码确认界面 =====
-                val order = state.selectedOrder!!
 
-                // PDA 扫码输入区
+                // PDA 扫码输入区 — 标签和回调随步骤切换
+                val scanLoc = state.scanningLocation
+                val locTarget = state.matchedDetail?.targetLocationCode ?: ""
                 BarcodeTextField(
-                    onBarcodeScanned = { viewModel.scanBarcode(it.trim()) },
-                    label = "扫替代料/缺料条码",
+                    onBarcodeScanned = { barcode ->
+                        if (scanLoc) viewModel.scanLocation(barcode.trim())
+                        else viewModel.scanBarcode(barcode.trim())
+                    },
+                    label = if (scanLoc) "扫目标库位: $locTarget"
+                            else "扫替代料号条码(>14位)",
+                    clearKey = scanLoc,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
@@ -75,7 +81,7 @@ fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewMo
 
                 // 匹配结果显示
                 if (state.showCandidates && state.matchCandidates.isNotEmpty()) {
-                    // 多条候选列表
+                    // 多条候选列表（步骤1：选明细）
                     Text("请选择匹配的明细：", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.bodyMedium)
                     LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp),
@@ -91,33 +97,32 @@ fun SubstituteScreen(onBack: () -> Unit, viewModel: SubstituteViewModel = viewMo
                             }
                         }
                     }
-                } else if (state.matchedDetail != null) {
-                    // 单条匹配结果
-                    val m = state.matchedDetail!!
-                    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("替代料: ${m.substitutePartNo}", style = MaterialTheme.typography.titleSmall)
-                            Text("来源库位: ${m.sourceLocationCode}", style = MaterialTheme.typography.bodySmall)
-                            Text("缺料: ${m.originalPartNo}", style = MaterialTheme.typography.titleSmall)
-                            Text("目标库位: ${m.targetLocationCode}", style = MaterialTheme.typography.bodySmall)
-                            Text("数量: ${m.quantity.toInt()}", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary)
+                } else {
+                    val matched = state.matchedDetail
+                    if (state.scanningLocation && matched != null) {
+                        // 步骤2：料号已匹配，等待扫目标库位（仅展示，不显示确认/取消按钮）
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("替代料: ${matched.substitutePartNo}", style = MaterialTheme.typography.titleSmall)
+                                Text("来源库位: ${matched.sourceLocationCode}", style = MaterialTheme.typography.bodySmall)
+                                Text("缺料: ${matched.originalPartNo}", style = MaterialTheme.typography.titleSmall)
+                                Text("目标库位: ${matched.targetLocationCode}", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                                Text("数量: ${matched.quantity.toInt()}", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
                         }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { viewModel.cancelCurrentMatch() },
-                            modifier = Modifier.weight(1f)) { Text("取消重扫") }
-                        Button(onClick = { viewModel.confirmDetail() },
-                            modifier = Modifier.weight(1f)) { Text("确认") }
+                        Spacer(Modifier.height(4.dp))
+                        Text("↑ 请扫目标库位条码",
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
                 }
 
                 Spacer(Modifier.height(8.dp))
 
-                // 未确认明细列表（按来源库位排列）
+                // 明细列表（按来源库位排列）
                 Text("明细列表", style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(horizontal = 16.dp))
                 LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp),

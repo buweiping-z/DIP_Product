@@ -42,7 +42,8 @@ class AppRepository(val context: Context) {
     // Refill
     suspend fun getActiveRefillBatches() = call { api.getActiveRefillBatches() }
     suspend fun getRefillBatchDetail(batchNo: String) = call { api.getRefillBatchDetail(batchNo) }
-    suspend fun getRefillParts(productName: String) = call { api.getRefillParts(productName) }
+    suspend fun getRefillParts(productName: String) = call { api.getRefillParts(productName = productName) }
+    suspend fun getRefillPartsByOrder(orderNo: String) = call { api.getRefillParts(orderNo = orderNo) }
     suspend fun getRefillRecords(partNo: String? = null, locationCode: String? = null,
                                   startDate: String? = null, endDate: String? = null) =
         call { api.getRefillRecords(partNo, locationCode, startDate, endDate) }
@@ -86,4 +87,53 @@ class AppRepository(val context: Context) {
 
     suspend fun confirmSubstituteAll(orderId: Int): Result<ApiResponse<Map<String, Any?>>> =
         call { api.confirmSubstituteAll(orderId) }
+
+    // Changeover
+    suspend fun getChangeoverBom(productName: String): Result<List<Map<String, Any?>>> {
+        return try {
+            val res = api.getChangeoverBom(productName = productName)
+            if (res.code == 0 && res.data != null) Result.success(res.data)
+            else Result.success(emptyList())
+        } catch (e: Exception) {
+            Result.failure(Exception("网络连接失败: ${e.message}"))
+        }
+    }
+
+    suspend fun getChangeoverBomByOrder(orderNo: String): Result<Pair<String, List<Map<String, Any?>>>> {
+        return try {
+            val res = api.getChangeoverBomByOrder(orderNo)
+            if (res.code == 0 && res.data != null) {
+                val data = res.data
+                val productName = data["product_name"] as? String ?: orderNo
+                val bom = (data["bom"] as? List<*>)?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+                Result.success(Pair(productName, bom))
+            } else {
+                Result.success(Pair(orderNo, emptyList()))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("网络连接失败: ${e.message}"))
+        }
+    }
+
+    suspend fun getChangeoverBatches(): Result<List<Map<String, Any?>>> {
+        return call { api.getChangeoverBatches() }.map { it.data ?: emptyList() }
+    }
+
+    suspend fun createChangeoverBatch(productName: String, bom: List<Map<String, Any?>>): Result<Map<String, Any?>> {
+        return call {
+            api.createChangeoverBatch(mapOf("product_name" to productName, "bom" to bom))
+        }.map { it.data ?: emptyMap() }
+    }
+
+    suspend fun getChangeoverBatchDetail(batchNo: String): Result<Map<String, Any?>> {
+        return call { api.getChangeoverBatchDetail(batchNo) }.map { it.data ?: emptyMap() }
+    }
+
+    suspend fun scanChangeoverBatch(batchNo: String, partNo: String): Result<Map<String, Any?>> {
+        return call { api.scanChangeoverBatch(batchNo, mapOf("part_no" to partNo)) }.map { it.data ?: emptyMap() }
+    }
+
+    suspend fun completeChangeoverBatch(batchNo: String): Result<Unit> {
+        return call { api.completeChangeoverBatch(batchNo) }.map { }
+    }
 }

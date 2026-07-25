@@ -12,10 +12,10 @@ public class AuthService
     private readonly AppDbContext _db;
     private readonly JwtTokenService _jwt;
 
-    public AuthService(AppDbContext db, IConfiguration config)
+    public AuthService(AppDbContext db, JwtTokenService jwt)
     {
         _db = db;
-        _jwt = new JwtTokenService(config);
+        _jwt = jwt;
     }
 
     public async Task<object> LoginAsync(string username, string password)
@@ -35,7 +35,7 @@ public class AuthService
         {
             OperatorId = user.Id,
             Token = refreshStr,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(_jwt.RefreshExpireDays),
             CreatedAt = DateTime.UtcNow
         };
         _db.RefreshTokens.Add(rt);
@@ -45,7 +45,7 @@ public class AuthService
         {
             access_token = accessToken,
             refresh_token = refreshStr,
-            expires_in = 1800,
+            expires_in = _jwt.ExpiresMinutes * 60,
             user = new { id = user.Id, username = user.Username, real_name = user.RealName, role_code = roleCode, line_id = user.LineId }
         };
     }
@@ -73,7 +73,7 @@ public class AuthService
         {
             OperatorId = user.Id,
             Token = newRefresh,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(_jwt.RefreshExpireDays),
             CreatedAt = DateTime.UtcNow
         });
         await _db.SaveChangesAsync();
@@ -82,7 +82,7 @@ public class AuthService
         {
             access_token = accessToken,
             refresh_token = newRefresh,
-            expires_in = 1800,
+            expires_in = _jwt.ExpiresMinutes * 60,
             user = new { id = user.Id, username = user.Username, real_name = user.RealName, role_code = roleCode, line_id = user.LineId }
         };
     }

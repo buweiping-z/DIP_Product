@@ -4,8 +4,15 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import okhttp3.Authenticator
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.Route
 import okhttp3.logging.HttpLoggingInterceptor
+import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.net.InetAddress
@@ -16,22 +23,30 @@ import javax.net.SocketFactory
 object RetrofitClient {
     var baseUrl: String = "http://192.168.5.11:8800/"
     private var apiService: ApiService? = null
+    private var cachedNetworkHandle: Long = -1L
+    private var currentWifiNetwork: Network? = null
 
     fun getApiService(context: Context): ApiService {
-        if (apiService == null) {
-            val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
+        // 兜底检测：WiFi Network handle 变了 → 旧 WifiSocketFactory 中的 Network 已失效 → 重建
+        val currentHandle = getWifiNetwork(context)?.networkHandle ?: -1L
+        if (apiService != null && currentHandle != cachedNetworkHandle) {
+            apiService = null
+        }
 
+        if (apiService == null) {
+            val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+
+            currentWifiNetwork = getWifiNetwork(context)
             val clientBuilder = OkHttpClient.Builder()
                 .addInterceptor(logging)
-                .addInterceptor(AuthInterceptor(context))
+                .addInterceptor(AuthInterceptor())
+                .authenticator(TokenAuthenticator())
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
 
-            // 绑定 WiFi 网卡（手机同时开 WiFi+移动数据时，强制走 WiFi）
-            val wifiNetwork = getWifiNetwork(context)
-            if (wifiNetwork != null) {
-                clientBuilder.socketFactory(WifiSocketFactory(wifiNetwork))
+            if (currentWifiNetwork != null) {
+                clientBuilder.socketFactory(WifiSocketFactory(currentWifiNetwork!!))
             }
 
             val client = clientBuilder.build()
@@ -41,6 +56,7 @@ object RetrofitClient {
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
                 .create(ApiService::class.java)
+            cachedNetworkHandle = currentHandle
         }
         return apiService!!
     }
@@ -56,7 +72,56 @@ object RetrofitClient {
         return null
     }
 
-    fun reset() { apiService = null }
+    fun reset() { apiService = null; cachedNetworkHandle = -1L; currentWifiNetwork = null }
+
+    /** OkHttp Authenticator：token 过期（401）时自动用 refresh_token 换新 token 并重试 */
+    private class TokenAuthenticator : Authenticator {
+        override fun authenticate(route: Route?, response: Response): Request? {
+            if (responseCount(response) > 1) return null
+
+            val rt = TokenHolder.refreshToken
+            if (rt.isBlank()) return null
+
+            return try {
+                val json = JSONObject().apply { put("refresh_token", rt) }
+                val body = json.toString().toRequestBody("application/json".toMediaType())
+                val refreshRequest = Request.Builder()
+                    .url("${RetrofitClient.baseUrl}api/v1/auth/refresh")
+                    .post(body)
+                    .build()
+
+                // 刷新请求复用 WiFi 绑定的 OkHttp（双网场景也能访问内网服务器）
+                val refreshClient = OkHttpClient.Builder().apply {
+                    val wifi = RetrofitClient.currentWifiNetwork
+                    if (wifi != null) socketFactory(WifiSocketFactory(wifi))
+                }.build()
+                val refreshResponse = refreshClient.newCall(refreshRequest).execute()
+                if (!refreshResponse.isSuccessful) {
+                    TokenHolder.clear()
+                    return null
+                }
+                val respJson = JSONObject(refreshResponse.body?.string() ?: "")
+                val data = respJson.optJSONObject("data") ?: return null
+                val newToken = data.optString("access_token", "")
+                val newRt = data.optString("refresh_token", "")
+                if (newToken.isBlank()) return null
+
+                TokenHolder.save(newToken, newRt)
+                response.request.newBuilder()
+                    .header("Authorization", "Bearer $newToken")
+                    .build()
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun responseCount(response: Response): Int {
+            var count = 0
+            var r: Response? = response
+            while (r != null) { count++; r = r.priorResponse }
+            return count
+        }
+    }
 }
 
 /** SocketFactory 装饰器：强制 Socket 绑定到指定的 WiFi Network */

@@ -22,8 +22,12 @@ public class RefillController : ControllerBase
     public async Task<IActionResult> GetBatch(string batchNo) => Ok(ApiResponse.Ok(await _svc.GetBatchDetailAsync(batchNo)));
 
     [HttpGet("parts")]
-    public async Task<IActionResult> GetParts([FromQuery] string product_name)
-        => Ok(ApiResponse.Ok(await _svc.GetPartsByProductAsync(product_name)));
+    public async Task<IActionResult> GetParts([FromQuery] string? product_name, [FromQuery] string? order_no)
+    {
+        if (!string.IsNullOrEmpty(order_no))
+            return Ok(ApiResponse.Ok(await _svc.GetPartsByOrderNoAsync(order_no)));
+        return Ok(ApiResponse.Ok(await _svc.GetPartsByProductAsync(product_name ?? "")));
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetRecords(
