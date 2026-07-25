@@ -82,6 +82,7 @@ export default function OrderList() {
         setTotal(res.data?.total || 0);
       } finally { setLoading(false); }
     }, 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [filterProductName, filterMonth]);
 
   const loadMeta = async (month?: string) => {
@@ -416,8 +417,8 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
           <button onClick={() => bomFileRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">导入产品BOM</button>
           <button onClick={async () => {
             try {
-              const res = await api.get('/orders/export-product-bom', { responseType: 'blob' });
-              const url = URL.createObjectURL(res.data);
+              const blob = await api.get('/orders/export-product-bom', { responseType: 'blob' });
+              const url = URL.createObjectURL(blob as any);
               const a = document.createElement('a'); a.href = url; a.download = 'product_bom_export.xlsx'; a.click();
               URL.revokeObjectURL(url);
             } catch { /* handled by interceptor */ }

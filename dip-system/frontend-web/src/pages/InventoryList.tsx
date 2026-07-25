@@ -54,6 +54,7 @@ export default function InventoryList() {
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => { setPage(1); fetchData(1); }, 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [partNo, locationCode]);
 
   const handleSort = (column: string) => {

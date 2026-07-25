@@ -66,6 +66,7 @@ export default function SubstituteList() {
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => { setPage(1); fetchOrders(1); }, 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [filterPartNo]);
 
   const openCreate = () => {

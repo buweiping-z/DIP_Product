@@ -35,6 +35,7 @@ export default function ChangeoverList() {
       setPage(1);
       fetchData(1, filterProductName);
     }, 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [filterProductName]);
 
   const handleClear = () => {
