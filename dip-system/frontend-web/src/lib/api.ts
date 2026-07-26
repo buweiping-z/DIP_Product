@@ -22,14 +22,38 @@ instance.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+let refreshPromise: Promise<boolean> | null = null;
+
+function doRefresh(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (!refreshToken) return false;
+        const res = await axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken }, { timeout: 10000 });
+        if (res.data.code === 0) {
+          const d = res.data.data;
+          localStorage.setItem('token', d.access_token);
+          localStorage.setItem('refreshToken', d.refresh_token);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
 instance.interceptors.response.use(
   (res) => {
     const body = res.data;
-    // 全局业务错误拦截：非 0 code 且非 200 HTTP 状态显示提示
     if (body && body.code !== 0 && body.code !== undefined) {
       const msg = body.message || '操作失败';
       const isLogin = res.config.url?.includes('/auth/login');
-      // 登录接口保留原始消息，不转换、不弹 toast
       if (isLogin) throw new Error(msg);
       const displayMsg = (body.code === 401 || body.code === 403)
         ? '当前用户无法操作'
@@ -42,18 +66,9 @@ instance.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401 && !error.config._retry) {
       error.config._retry = true;
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (refreshToken) {
-        try {
-          const res = await axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken });
-          if (res.data.code === 0) {
-            const d = res.data.data;
-            localStorage.setItem('token', d.access_token);
-            localStorage.setItem('refreshToken', d.refresh_token);
-            error.config.headers.Authorization = `Bearer ${d.access_token}`;
-            return instance(error.config);
-          }
-        } catch {}
+      if (await doRefresh()) {
+        error.config.headers.Authorization = `Bearer ${localStorage.getItem('token')}`;
+        return instance(error.config);
       }
       localStorage.clear(); window.location.href = '/login';
     }

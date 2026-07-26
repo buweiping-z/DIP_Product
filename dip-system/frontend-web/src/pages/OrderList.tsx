@@ -50,6 +50,7 @@ export default function OrderList() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const timerRef = useRef<any>(null);
+  const skipDebounce = useRef(true);
 
   const fetchData = useCallback(async (p?: number, pn?: string, pm?: string) => {
     setLoading(true);
@@ -62,6 +63,9 @@ export default function OrderList() {
       const res = await api.get('/orders', { params });
       setData(res.data?.items || []);
       setTotal(res.data?.total || 0);
+      setMsg('');
+    } catch {
+      setMsg('加载失败，请刷新重试');
     } finally { setLoading(false); }
   }, [page, filterProductName, filterMonth]);
 
@@ -69,6 +73,7 @@ export default function OrderList() {
 
   // 搜索防抖（直接用 api 避免 fetchData 闭包过期）
   useEffect(() => {
+    if (skipDebounce.current) { skipDebounce.current = false; return; }
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
       setPage(1);
@@ -80,7 +85,7 @@ export default function OrderList() {
         const res = await api.get('/orders', { params });
         setData(res.data?.items || []);
         setTotal(res.data?.total || 0);
-      } finally { setLoading(false); }
+      } catch {} finally { setLoading(false); }
     }, 300);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [filterProductName, filterMonth]);
