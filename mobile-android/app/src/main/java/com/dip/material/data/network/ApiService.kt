@@ -57,6 +57,10 @@ interface ApiService {
     @POST("api/v1/prep/{prepId}/kit-check")
     suspend fun checkKitComplete(@Path("prepId") prepId: Int): ApiResponse<PrepScanResult>
 
+    // ===== Dashboard =====
+    @GET("api/v1/dashboard/mobile-counts")
+    suspend fun getMobileCounts(): ApiResponse<Map<String, Int>>
+
     // ===== Refill =====
     @GET("api/v1/refill/active")
     suspend fun getActiveRefillBatches(): ApiResponse<List<Map<String, Any?>>>
@@ -155,4 +159,8 @@ interface ApiService {
 
     @POST("api/v1/substitute/orders/{id}/confirm")
     suspend fun confirmSubstituteAll(@Path("id") orderId: Int): ApiResponse<Map<String, Any?>>
+
+    // ===== Call Material 叫料 =====
+    @POST("api/v1/call-material")
+    suspend fun callMaterial(@Body request: CallMaterialRequest): ApiResponse<Map<String, Any?>>
 }

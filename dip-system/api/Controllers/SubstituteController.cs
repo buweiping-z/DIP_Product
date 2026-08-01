@@ -15,7 +15,7 @@ public class SubstituteController : ControllerBase
 
     public SubstituteController(SubstituteService svc) { _svc = svc; }
 
-    private long GetUserId() => long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+    private long GetUserId() => long.Parse(User.FindFirstValue("nameid") ?? "0");
 
     [HttpGet]
     public async Task<IActionResult> GetList(

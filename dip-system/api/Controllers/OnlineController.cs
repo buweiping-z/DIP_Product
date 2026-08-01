@@ -31,7 +31,7 @@ public class OnlineController : ControllerBase {
     [HttpPost("confirm")]
     public async Task<IActionResult> Confirm([FromBody] OnlineConfirmRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.ConfirmAsync(req.DetailId, req.Barcode, req.Quantity,
             req.StationId, req.EquipmentId, userId)));
     }

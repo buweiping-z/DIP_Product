@@ -25,6 +25,10 @@ public class OrdersController : ControllerBase {
     public async Task<IActionResult> GetProductNames([FromQuery] string? production_month)
         => Ok(ApiResponse.Ok(await _svc.GetProductNamesAsync(production_month)));
 
+    [HttpGet("product-index")]
+    public async Task<IActionResult> GetProductIndex([FromQuery] string? production_month)
+        => Ok(ApiResponse.Ok(await _svc.GetProductIndexAsync(production_month)));
+
     [HttpGet("by-no")]
     public async Task<IActionResult> GetByOrderNo([FromQuery] string order_no)
         => Ok(ApiResponse.Ok(await _svc.GetByOrderNoAsync(order_no)));
@@ -65,7 +69,7 @@ public class OrdersController : ControllerBase {
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Dictionary<string, object?> data)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(data, userId), "订单创建成功"));
     }
 
@@ -76,7 +80,7 @@ public class OrdersController : ControllerBase {
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> Cancel(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.CancelAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "订单已取消，库存已释放"));
     }
@@ -91,14 +95,14 @@ public class OrdersController : ControllerBase {
     [HttpPut("{id}/plan-qty")]
     public async Task<IActionResult> UpdatePlanQty(long id, [FromBody] Dictionary<string, object?> data)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.UpdatePlanQtyAsync(id, data, userId), "计划数量已更新"));
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.DeleteAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "删除成功"));
     }

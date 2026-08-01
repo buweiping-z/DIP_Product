@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dip.material.data.repository.AppRepository
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +17,8 @@ data class HomeUiState(
     val pendingSubstitute: Int = 0,
     val pendingOnline: Int = 0,
     val pendingOutbound: Int = 0,
-    val pendingChangeover: Int = 0
+    val pendingChangeover: Int = 0,
+    val pendingCallMaterial: Int = 0
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -32,25 +32,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
 
-            // 6 个 API 并行请求，不互相等待
-            val prep = async { repo.getPrepOrders(status = 1).getOrNull()?.data?.total ?: 0 }
-            val refill = async { repo.getActiveRefillBatches().getOrNull()?.data?.size ?: 0 }
-            val sub = async { repo.getSubstituteOrders(status = 1).getOrNull()?.data?.total ?: 0 }
-            val online = async { repo.getOrders(status = 2).getOrNull()?.data?.total ?: 0 }
-            val outbound = async { repo.getOutboundOrders(status = 1).getOrNull()?.data?.total ?: 0 }
-            val changeover = async { repo.getChangeoverBatches().getOrNull()?.size ?: 0 }
-
-            val prepCount = prep.await()
-            val refillCount = refill.await()
-            val subCount = sub.await()
-            val onlineCount = online.await()
-            val outboundCount = outbound.await()
-            val changeoverCount = changeover.await()
-
-            _state.update { it.copy(isLoading = false,
-                pendingPrep = prepCount, pendingRefill = refillCount, pendingSubstitute = subCount,
-                pendingOnline = onlineCount, pendingOutbound = outboundCount,
-                pendingChangeover = changeoverCount) }
+            repo.getMobileCounts().fold(
+                onSuccess = { res ->
+                    val d = res.data
+                    _state.update { it.copy(isLoading = false,
+                        pendingPrep = d?.get("prep") ?: 0,
+                        pendingRefill = d?.get("refill") ?: 0,
+                        pendingSubstitute = d?.get("substitute") ?: 0,
+                        pendingOnline = d?.get("online") ?: 0,
+                        pendingOutbound = d?.get("outbound") ?: 0,
+                        pendingChangeover = d?.get("changeover") ?: 0,
+                        pendingCallMaterial = d?.get("call_material") ?: 0) }
+                },
+                onFailure = { _state.update { it.copy(isLoading = false) } }
+            )
         }
     }
 }

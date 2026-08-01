@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: ""
+title: DIP 物料管理系统（全栈项目根）
+scope:
+    - CLAUDE.md
+    - .gitignore
+    - readme.txt
+    - xgyj.txt
+    - 产品BOM导入模板.xlsx
+    - 库存导入模板.xlsx
+source_files: []
+depends_on: []
+related_to: []

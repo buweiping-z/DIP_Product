@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.EntityFrameworkCore;
 using ClosedXML.Excel;
 using System.Text.Json;
@@ -12,8 +13,20 @@ public class OrderService
     private readonly AppDbContext _db;
     private readonly IServiceProvider _sp;
     private readonly ILogger<OrderService> _logger;
+    private readonly IMemoryCache _cache;
 
-    public OrderService(AppDbContext db, IServiceProvider sp, ILogger<OrderService> logger) { _db = db; _sp = sp; _logger = logger; }
+    public OrderService(AppDbContext db, IServiceProvider sp, ILogger<OrderService> logger, IMemoryCache cache) { _db = db; _sp = sp; _logger = logger; _cache = cache; }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _productCacheKeys = new();
+
+    private void InvalidateProductCache()
+    {
+        foreach (var key in _productCacheKeys.Keys)
+        {
+            _cache.Remove(key);
+            _productCacheKeys.TryRemove(key, out _);
+        }
+    }
 
     /* ===== 库存冻结计算逻辑说明 =====
      *
@@ -44,19 +57,46 @@ public class OrderService
         created_at = o.CreatedAt
     };
 
-    /// <summary>按月份查 BOM：优先精确匹配，未命中 fallback 通用版本(NULL)</summary>
+    /// <summary>
+    /// 向前查找规则：找到产品在指定月份应使用的 BOM 版本月份。
+    /// 精确匹配 → 向前 ≤ 查找 → NULL（通用版本）
+    /// 返回 null 表示应使用通用版本
+    /// </summary>
+    private async Task<string?> GetEffectiveBomMonthAsync(string productName, string? productionMonth)
+    {
+        if (string.IsNullOrEmpty(productionMonth)) return null;
+        var nameLower = productName.ToLower().Trim();
+
+        // 1. 精确匹配当月
+        var exactExists = await _db.ProductBoms.AnyAsync(b =>
+            b.ProductName.ToLower().Trim() == nameLower && b.ProductionMonth == productionMonth);
+        if (exactExists) return productionMonth;
+
+        // 2. 向前查找 ≤ 当前月份的最新非 NULL 月份
+        var recentMonth = await _db.ProductBoms
+            .Where(b => b.ProductName.ToLower().Trim() == nameLower
+                && b.ProductionMonth != null
+                && b.ProductionMonth.CompareTo(productionMonth) <= 0)
+            .OrderByDescending(b => b.ProductionMonth)
+            .Select(b => b.ProductionMonth)
+            .FirstOrDefaultAsync();
+        if (recentMonth != null) return recentMonth;
+
+        // 3. 没有月份版本 → 返回 null，调用方将查询 NULL（通用版本）
+        return null;
+    }
+
+    /// <summary>按月份查 BOM：使用向前查找规则</summary>
     private async Task<List<ProductBom>> GetBomWithFallbackAsync(string productName, string? productionMonth)
     {
         var nameLower = productName.ToLower().Trim();
-        // 优先精确匹配月份（产品名大小写不敏感）
-        var boms = await _db.ProductBoms
-            .Where(b => b.ProductName.ToLower().Trim() == nameLower && b.ProductionMonth == productionMonth)
-            .ToListAsync();
-        if (boms.Any()) return boms;
+        var effectiveMonth = await GetEffectiveBomMonthAsync(productName, productionMonth);
 
-        // fallback 通用版本
+        // 如果向前查找返回 null 且无通用版本 → 返回空
+        // 如果 effectiveMonth 为 null → 查通用版本
+        // 如果 effectiveMonth 有值 → 查该月份
         return await _db.ProductBoms
-            .Where(b => b.ProductName.ToLower().Trim() == nameLower && b.ProductionMonth == null)
+            .Where(b => b.ProductName.ToLower().Trim() == nameLower && b.ProductionMonth == effectiveMonth)
             .ToListAsync();
     }
 
@@ -64,7 +104,9 @@ public class OrderService
         string? productName = null, string? productionMonth = null, int page = 1, int pageSize = 20)
     {
         var query = _db.ProductionOrders.AsQueryable();
+        // 默认排除已取消(status=4)，除非显式查询已取消
         if (status.HasValue) query = query.Where(o => o.Status == status.Value);
+        else query = query.Where(o => o.Status != 4);
         if (lineId.HasValue) query = query.Where(o => o.LineId == lineId.Value);
         if (!string.IsNullOrEmpty(productName))
         {
@@ -518,13 +560,16 @@ public class OrderService
         if (order.Status == 4) throw AppException.Business("订单已取消");
         if (order.Status == 3) throw AppException.Business("订单已完成，无法取消");
 
-        // 1. 释放当前订单全部冻结
+        // 1. 释放当前订单全部冻结（逐条容错，一条失败不中断整体）
         var prepSvc = _sp.GetRequiredService<PrepService>();
         var preps = await _db.PrepOrders.Where(p => p.ProductionOrderId == orderId).ToListAsync();
         foreach (var p in preps)
         {
             if (p.Status != 3)
-                await prepSvc.CancelAsync(p.Id, operatorId);
+            {
+                try { await prepSvc.CancelAsync(p.Id, operatorId); }
+                catch (Exception ex) { _logger.LogWarning(ex, "取消备料单失败 PrepId={PrepId}", p.Id); }
+            }
         }
 
         order.Status = 4;
@@ -598,6 +643,7 @@ public class OrderService
             try { await invSvc.ThawCoreAsync(inv.PartId, inv.LocationId, inv.FrozenQty, operatorId, "PlanQtyAdjust", 0); } catch (Exception ex) { _logger.LogWarning(ex, "解冻失败 PartId={PartId} LocId={LocId}", inv.PartId, inv.LocationId); }
         }
         await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear(); // 清空 Phase 1 实体快照，保证 Phase 2 从 DB 全新加载
 
         // Phase 2: 按差值调整真实库存
         foreach (var kv in partDeltas)
@@ -704,6 +750,7 @@ public class OrderService
             try { await invSvc.ThawCoreAsync(inv.PartId, inv.LocationId, inv.FrozenQty, operatorId, "Refreeze", 0); } catch (Exception ex) { _logger.LogWarning(ex, "Refreeze解冻失败 PartId={PartId}", inv.PartId); }
         }
         await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear(); // 清空 Phase 1 实体快照，保证 Phase 2 从 DB 全新加载
 
         // 活跃订单按创建时间从早到晚排序
         var activeOrders = await _db.ProductionOrders
@@ -716,6 +763,7 @@ public class OrderService
                 var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prep.Id).ToListAsync();
                 foreach (var d in details)
                 {
+                    if (d.Status == 2) continue; // 已扫描确认的明细不重置
                     d.ActualQty = 0; // 清零
                     d.Status = 1;
                     // 重新冻结：查 AvailableQty > 0，先到先得（ChangeTracker 已清空，保证读到 DB 实值）
@@ -740,35 +788,16 @@ public class OrderService
     {
         var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null) throw AppException.NotFound($"订单 {orderId} 不存在");
-        if (order.Status != 4) await CancelAsync(orderId, operatorId); // 先取消（解冻+重新分配冻结）
 
-        // 硬删除：级联清理所有关联数据
-        var orderProducts = await _db.OrderProducts.Where(op => op.OrderId == orderId).ToListAsync();
-        _db.OrderProducts.RemoveRange(orderProducts);
-
-        var bomItems = await _db.BomItems.Where(b => b.OrderId == orderId).ToListAsync();
-        _db.BomItems.RemoveRange(bomItems);
-
-        var closure = await _db.OrderClosures.FirstOrDefaultAsync(c => c.ProductionOrderId == orderId);
-        if (closure != null) _db.OrderClosures.Remove(closure);
-
-        var preps = await _db.PrepOrders.Where(p => p.ProductionOrderId == orderId).ToListAsync();
-        foreach (var prep in preps)
+        if (order.Status != 4)
         {
-            var details = await _db.PrepDetails.Where(d => d.PrepOrderId == prep.Id).ToListAsync();
-            var detailIds = details.Select(d => d.Id).ToList();
-
-            var scans = await _db.PrepScanRecords.Where(s => detailIds.Contains(s.PrepDetailId)).ToListAsync();
-            _db.PrepScanRecords.RemoveRange(scans);
-
-            _db.PrepDetails.RemoveRange(details);
-
-            var confirms = await _db.OnlineConfirms.Where(c => c.PrepOrderId == prep.Id).ToListAsync();
-            _db.OnlineConfirms.RemoveRange(confirms);
+            try { await CancelAsync(orderId, operatorId); }
+            catch { /* 关联数据已不存在时仍允许删除 */ }
         }
-        _db.PrepOrders.RemoveRange(preps);
 
-        _db.ProductionOrders.Remove(order);
+        order.IsDeleted = true;
+        order.UpdatedAt = DateTime.UtcNow;
+        order.UpdatedBy = operatorId;
         await _db.SaveChangesAsync();
     }
 
@@ -797,6 +826,9 @@ public class OrderService
                 .ToListAsync();
             if (oldBoms.Any()) { _db.ProductBoms.RemoveRange(oldBoms); await _db.SaveChangesAsync(); }
         }
+        // 同批次内去重：同一(产品,月份,料号)只保留最后一条
+        rows = rows.GroupBy(r => (r.productName, r.productionMonth, r.partNo))
+            .Select(g => g.Last()).ToList();
         int count = 0;
         var allPartNos = rows.Select(r => r.partNo).Distinct().ToList();
         var existingParts = await _db.Parts.Where(p => allPartNos.Contains(p.PartNo)).ToDictionaryAsync(p => p.PartNo);
@@ -816,6 +848,8 @@ public class OrderService
             count++;
         }
         await _db.SaveChangesAsync();
+        InvalidateProductCache();
+        await RebuildProductMonthIndexAsync();  // BOM 导入后自动维护索引表
         return count;
     }
 
@@ -838,37 +872,127 @@ public class OrderService
 
     public async Task<List<object>> GetProductNamesAsync(string? productionMonth = null)
     {
-        var query = _db.ProductBoms.AsQueryable();
-        if (!string.IsNullOrEmpty(productionMonth))
+        var cacheKey = $"products_month_{productionMonth ?? "all"}";
+        if (_cache.TryGetValue(cacheKey, out List<object>? cached) && cached != null)
+            return cached;
+
+        // 加载全部 BOM，在内存中按向前查找规则筛选
+        var allBoms = await _db.ProductBoms.ToListAsync();
+        var result = new List<object>();
+
+        foreach (var name in allBoms.Select(b => b.ProductName).Distinct())
         {
-            // 有月份时：取该月份的 BOM + NULL 月份且没有月份版本的产品的 BOM（fallback）
-            var monthProducts = await _db.ProductBoms
-                .Where(b => b.ProductionMonth == productionMonth)
-                .Select(b => b.ProductName).Distinct().ToListAsync();
-            query = query.Where(b => b.ProductionMonth == productionMonth
-                || (b.ProductionMonth == null && !monthProducts.Contains(b.ProductName)));
-        }
-        var boms = await query.ToListAsync();
+            var nameLower = name.ToLower().Trim();
+            var productBoms = allBoms.Where(b => b.ProductName.ToLower().Trim() == nameLower).ToList();
 
-        // Build signature per product: sorted, distinct part_nos joined by comma
-        var signatures = boms
-            .GroupBy(b => b.ProductName)
-            .ToDictionary(
-                g => g.Key,
-                g => string.Join(",", g.Select(b => b.PartNo).Distinct().OrderBy(x => x))
-            );
-
-        return boms
-            .GroupBy(b => new { b.ProductName, b.PartId })
-            .GroupBy(g => g.Key.ProductName)
-            .Select(g => (object)new
+            // 向前查找规则确定有效月份
+            string? effectiveMonth = null;
+            if (!string.IsNullOrEmpty(productionMonth))
             {
-                product_name = g.Key,
-                product_id = 0L,  // placeholder — no products table exists
-                bom_count = g.Count(),
-                bom_signature = signatures.GetValueOrDefault(g.Key, "")
-            })
+                // 1. 精确匹配当月
+                if (productBoms.Any(b => b.ProductionMonth == productionMonth))
+                    effectiveMonth = productionMonth;
+                else
+                    // 2. 向前查找 ≤ 当前月份的最新 BOM
+                    effectiveMonth = productBoms
+                        .Where(b => b.ProductionMonth != null
+                            && string.Compare(b.ProductionMonth!, productionMonth) <= 0)
+                        .Select(b => b.ProductionMonth)
+                        .Distinct()
+                        .OrderByDescending(m => m)
+                        .FirstOrDefault();
+                // 3. effectiveMonth 为 null → 使用通用版本(NULL)，下面 Where 自动匹配
+            }
+
+            var effectiveBoms = productBoms.Where(b => b.ProductionMonth == effectiveMonth).ToList();
+            if (!effectiveBoms.Any()) continue;
+
+            var partNos = effectiveBoms.Select(b => b.PartNo).Distinct().OrderBy(x => x).ToList();
+            result.Add((object)new
+            {
+                product_name = name,
+                product_id = 0L,
+                bom_count = partNos.Count,
+                bom_signature = string.Join(",", partNos),
+                bom_month = effectiveMonth ?? "通用"
+            });
+        }
+
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        _productCacheKeys.TryAdd(cacheKey, 0);
+        return result;
+    }
+
+    /// <summary>
+    /// 从 product_boms 全量重建机种-生连索引表
+    /// </summary>
+    public async Task RebuildProductMonthIndexAsync()
+    {
+        // 从 product_boms 加载必要字段，在内存中分组统计（避免 EF Core MySQL GroupBy 翻译问题）
+        var allBoms = await _db.ProductBoms
+            .Select(b => new { b.ProductName, b.ProductionMonth, b.PartNo })
+            .ToListAsync();
+
+        var grouped = allBoms
+            .GroupBy(b => (Name: b.ProductName.ToUpper().Trim(), b.ProductionMonth))
+            .Select(g => new { Name = g.Key.Name, g.Key.ProductionMonth, BomCount = g.Select(x => x.PartNo).Distinct().Count() })
             .ToList();
+
+        // 全量替换：清空旧索引，写入新数据
+        var oldRows = await _db.ProductMonthIndices.IgnoreQueryFilters().ToListAsync();
+        if (oldRows.Any()) _db.ProductMonthIndices.RemoveRange(oldRows);
+
+        foreach (var g in grouped)
+        {
+            _db.ProductMonthIndices.Add(new ProductMonthIndex
+            {
+                ProductName = g.Name,
+                ProductionMonth = g.ProductionMonth,
+                BomCount = g.BomCount
+            });
+        }
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// 从索引表快速查询指定月份可用的产品列表（向前查找规则）
+    /// </summary>
+    public async Task<List<object>> GetProductIndexAsync(string? productionMonth)
+    {
+        var allIndex = await _db.ProductMonthIndices.ToListAsync();
+        var result = new List<object>();
+
+        foreach (var name in allIndex.Select(i => i.ProductName).Distinct())
+        {
+            var entries = allIndex.Where(i => i.ProductName == name).ToList();
+
+            // 向前查找规则确定有效月份
+            string? effectiveMonth = null;
+            if (!string.IsNullOrEmpty(productionMonth))
+            {
+                if (entries.Any(i => i.ProductionMonth == productionMonth))
+                    effectiveMonth = productionMonth;
+                else
+                    effectiveMonth = entries
+                        .Where(i => i.ProductionMonth != null && string.Compare(i.ProductionMonth!, productionMonth) <= 0)
+                        .Select(i => i.ProductionMonth)
+                        .Distinct()
+                        .OrderByDescending(m => m)
+                        .FirstOrDefault();
+            }
+
+            var match = entries.FirstOrDefault(i => i.ProductionMonth == effectiveMonth);
+            if (match == null || match.BomCount == 0) continue;
+
+            result.Add(new
+            {
+                product_name = name,
+                product_id = 0L,
+                bom_count = match.BomCount,
+                bom_month = effectiveMonth ?? "通用"
+            });
+        }
+        return result;
     }
 
     public async Task<List<object>> GetBomStatusAsync(long orderId)
@@ -942,6 +1066,23 @@ public class OrderService
             .OrderBy(b => b.ProductionMonth).ThenBy(b => b.ProductName).ThenBy(b => b.PartNo)
             .ToListAsync();
 
+        // 去重：同一(产品,月份,料号)只保留第一条，删除多余重复记录
+        var seen = new HashSet<(string, string?, string)>();
+        var duplicates = new List<ProductBom>();
+        var uniqueBoms = new List<ProductBom>();
+        foreach (var b in boms)
+        {
+            var key = (b.ProductName, b.ProductionMonth, b.PartNo);
+            if (seen.Add(key)) uniqueBoms.Add(b);
+            else duplicates.Add(b);
+        }
+        if (duplicates.Any())
+        {
+            _db.ProductBoms.RemoveRange(duplicates);
+            await _db.SaveChangesAsync();
+            InvalidateProductCache();
+        }
+
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("产品BOM");
         ws.Cell(1, 1).Value = "产品名称";
@@ -949,7 +1090,7 @@ public class OrderService
         ws.Cell(1, 3).Value = "料号";
         ws.Cell(1, 4).Value = "用量";
         int row = 2;
-        foreach (var b in boms)
+        foreach (var b in uniqueBoms)
         {
             ws.Cell(row, 1).Value = b.ProductName;
             ws.Cell(row, 2).Value = b.ProductionMonth ?? "通用";

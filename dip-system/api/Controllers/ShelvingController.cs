@@ -26,21 +26,21 @@ public class ShelvingController : ControllerBase
     [HttpPost("batch")]
     public async Task<IActionResult> CreateBatch([FromBody] CreateBatchRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.CreateBatchAsync(req.TargetLocationId, userId), "上架批次创建成功"));
     }
 
     [HttpPost("batch/{id}/scan")]
     public async Task<IActionResult> ScanItem(long id, [FromBody] ScanItemRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.AddItemAsync(id, req.Barcode, userId)));
     }
 
     [HttpPost("batch/{id}/confirm")]
     public async Task<IActionResult> ConfirmBatch(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.ConfirmBatchAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "上架批次已确认"));
     }
@@ -48,7 +48,7 @@ public class ShelvingController : ControllerBase
     [HttpPost("batch/{id}/cancel")]
     public async Task<IActionResult> CancelBatch(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.CancelBatchAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "上架批次已撤销"));
     }
@@ -56,7 +56,7 @@ public class ShelvingController : ControllerBase
     [HttpPost("direct")]
     public async Task<IActionResult> DirectShelving([FromBody] DirectShelvingRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.DirectShelvingAsync(req.Barcode, req.TargetLocationCode, req.Quantity, userId), "上架成功"));
     }
 

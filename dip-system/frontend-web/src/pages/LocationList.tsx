@@ -8,6 +8,7 @@ const PAGE_SIZE = 50;
 export default function LocationList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isManager, setIsManager] = useState(false);
   const [msg, setMsg] = useState('');
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -55,6 +56,15 @@ export default function LocationList() {
     fetchData(1, searchCode);
   };
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    api.get('/auth/me').then(r => {
+      if (r.code === 0 && r.data) {
+        const role = (r.data.role_code || '').toLowerCase();
+        setIsManager(role === 'admin' || role === 'leader');
+      }
+    }).catch(() => {});
+  }, []);
 
   const openCreate = () => {
     setEditId(null);
@@ -175,8 +185,8 @@ export default function LocationList() {
                 <td className="p-3">{l.max_capacity}</td><td className="p-3">{l.current_qty}</td>
                 <td className="p-3">{l.status === 1 ? <span className="text-green-600">启用</span> : <span className="text-red-500">禁用</span>}</td>
                 <td className="p-3 space-x-1">
-                  <button onClick={() => openEdit(l)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                  <button onClick={() => handleDelete(l.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                  {isManager && <button onClick={() => openEdit(l)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>}
+                  {isManager && <button onClick={() => handleDelete(l.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>}
                 </td>
               </tr>
             ))}</tbody>

@@ -33,8 +33,8 @@ public class JwtTokenService
     {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, userId.ToString()),
-            new(ClaimTypes.Name, username),
+            new("nameid", userId.ToString()),
+            new("unique_name", username),
             new("role", roleCode),
             new("tenant_id", tenantId.ToString()),
         };

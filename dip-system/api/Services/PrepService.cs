@@ -25,7 +25,9 @@ public class PrepService
     public async Task<object> GetListAsync(int? status = null, long? lineId = null, int page = 1, int pageSize = 20)
     {
         var query = _db.PrepOrders.AsQueryable();
+        // 默认排除已撤销(status=3)，除非显式查询已撤销
         if (status.HasValue) query = query.Where(p => p.Status == status.Value);
+        else query = query.Where(p => p.Status != 3);
         if (lineId.HasValue) query = query.Where(p => p.LineId == lineId.Value);
         var total = await query.CountAsync();
 
@@ -184,8 +186,30 @@ public class PrepService
 
         if (detail.Status == 3) return new { matched = false, message = "该物料库存不足，请先上架补货" };
 
-        // 扫描阶段只核对，手机端自行计数
+        if (detail.Status == 1)
+        {
+            detail.Status = 2;
+            detail.UpdatedAt = DateTime.UtcNow;
+            Console.WriteLine($"[Prep] 明细 {detail.Id} ({detail.PartNo}) status → 2");
+
+            var allDetails = await _db.PrepDetails.Where(d => d.PrepOrderId == prepId).ToListAsync();
+            if (allDetails.All(d => d.Status == 2))
+            {
+                prep.Status = 2;
+                prep.KitCheckResult = 1;
+                prep.CompletedAt = DateTime.UtcNow;
+                Console.WriteLine($"[Prep] 备料单 {prepId} 全部完成 → status=2");
+
+                var order = await _db.ProductionOrders.FirstOrDefaultAsync(o => o.Id == prep.ProductionOrderId);
+                if (order != null && order.Status == 1)
+                {
+                    order.Status = 2;
+                    order.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+        }
         await _db.SaveChangesAsync();
+        Console.WriteLine($"[Prep] SaveChanges 完成, detail.Status={detail.Status}");
 
         return new { matched = true, prep_detail_id = detail.Id, part_no = detail.PartNo };
     }

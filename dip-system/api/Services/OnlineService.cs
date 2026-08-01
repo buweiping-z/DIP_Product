@@ -61,23 +61,31 @@ public class OnlineService
             if (confirmedCount >= allDetails.Count)
             {
                 Console.WriteLine($"[Online] 订单 {order.OrderNo} → 已完成，开始扣减冻结库存");
-                // 订单完成 → 将所有冻结库存一次性扣减（FrozenQty → 0，TotalQty 同步减少）
+                // 按订单 RequiredQty 逐料号扣减，不扣其他订单的冻结量
                 var invSvc = _sp.GetRequiredService<InventoryService>();
-                var partIds = allDetails.Select(d => d.PartId).Distinct().ToList();
-                foreach (var partId in partIds)
+                var orderSvc = _sp.GetRequiredService<OrderService>();
+                foreach (var d in allDetails)
                 {
+                    var remaining = d.RequiredQty;
+                    if (remaining <= 0) continue;
                     var frozenInvs = await _db.Inventories
-                        .Where(i => i.PartId == partId && i.FrozenQty > 0).ToListAsync();
+                        .Where(i => i.PartId == d.PartId && i.FrozenQty > 0)
+                        .OrderByDescending(i => i.FrozenQty).ToListAsync();
                     foreach (var inv in frozenInvs)
                     {
-                        await invSvc.DeductCoreAsync(partId, inv.LocationId, inv.FrozenQty,
-                            operatorId, "OnlineComplete", order.Id);
+                        if (remaining <= 0) break;
+                        var qty = Math.Min(inv.FrozenQty, remaining);
+                        try { await invSvc.DeductCoreAsync(d.PartId, inv.LocationId, qty, operatorId, "OnlineComplete", order.Id); remaining -= qty; }
+                        catch (Exception ex) { Console.WriteLine($"[Online] Deduct失败 PartId={d.PartId}: {ex.Message}"); }
                     }
                 }
 
                 order.Status = 3;
                 order.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
+
+                // 扣减后重新冻结其他活跃订单（先到先得）
+                await orderSvc.RefreezeActiveOrdersAsync(operatorId);
             }
             else
             {
@@ -133,7 +141,7 @@ public class OnlineService
                 prep_detail_id = c.PrepDetailId, part_id = c.PartId, part_no = c.PartNo,
                 batch_no = c.BatchNo, loaded_qty = c.LoadedQty, station_no = c.StationNo,
                 source_location_code = c.SourceLocationCode, barcode = c.Barcode,
-                status = c.Status, confirmed_at = c.ConfirmedAt
+                status = c.Status, prep_status = prep?.Status ?? 0, confirmed_at = c.ConfirmedAt
             };
         }).ToList();
 

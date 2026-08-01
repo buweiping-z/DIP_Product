@@ -126,12 +126,13 @@ class RefillViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** 步骤1：扫部品条码(>14位)勾选 */
+    /** 步骤1：扫部品条码（>14位去末尾4位，≤14位取全部）→ 解析后匹配料号勾选 */
     fun togglePart(barcode: String) {
         val trimmed = barcode.trim()
-        if (trimmed.length <= 14) { ScanSoundManager.playError(); _state.update { it.copy(scanMsg = "请扫部品条码(>14位)", msgOk = false) }; return }
-        val match = matchPart(trimmed)
-        if (match == null) { ScanSoundManager.playError(); _state.update { it.copy(scanMsg = "未匹配: $trimmed", msgOk = false) }; return }
+        // 解析：>14位取 length-4，≤14位取全部
+        val parsed = if (trimmed.length > 14) trimmed.dropLast(4) else trimmed
+        val match = matchPart(parsed)
+        if (match == null) { ScanSoundManager.playError(); _state.update { it.copy(scanMsg = "未匹配: $parsed", msgOk = false) }; return }
         ScanSoundManager.playSuccess()
         val ids = _state.value.selectedIds
         _state.update { it.copy(

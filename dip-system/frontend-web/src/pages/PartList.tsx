@@ -9,6 +9,7 @@ const PAGE_SIZE = 50;
 export default function PartList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isManager, setIsManager] = useState(false);
   const [msg, setMsg] = useState('');
   const [keyword, setKeyword] = useState('');
   const [showDialog, setShowDialog] = useState(false);
@@ -29,6 +30,15 @@ export default function PartList() {
     } finally { setLoading(false); }
   };
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    api.get('/auth/me').then(r => {
+      if (r.code === 0 && r.data) {
+        const role = (r.data.role_code || '').toLowerCase();
+        setIsManager(role === 'admin' || role === 'leader');
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleSearch = () => { setPage(1); fetchData(1); };
 
@@ -130,8 +140,8 @@ export default function PartList() {
                 <td className="p-3 text-sm">{PART_TYPES[p.part_type] || p.part_type}</td>
                 <td className="p-3">{p.status === 1 ? <span className="text-green-600">启用</span> : <span className="text-red-500">禁用</span>}</td>
                 <td className="p-3 space-x-1">
-                  <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                  <button onClick={() => handleDelete(p.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
+                  {isManager && <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>}
+                  {isManager && <button onClick={() => handleDelete(p.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>}
                 </td>
               </tr>))}</tbody>
           </table>

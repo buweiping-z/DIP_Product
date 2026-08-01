@@ -132,16 +132,9 @@ class ChangeoverViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** 步骤2：扫部品条码(>14位) → 匹配 + 本地计数 + 后端同步 */
+    /** 步骤2：扫部品条码 → 匹配 + 本地计数 + 后端同步 */
     fun scanChangeover(barcode: String) {
         val trimmed = barcode.trim()
-
-        if (trimmed.length <= 14) {
-            ScanSoundManager.playError()
-            _state.update { it.copy(scanMsg = "无效料号(${trimmed.length}位)，需>14位", msgOk = false,
-                scanEventId = it.scanEventId + 1, lastScanOk = false) }
-            return
-        }
 
         val partNo = parsePartNo(trimmed)
         val s = _state.value

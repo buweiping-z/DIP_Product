@@ -39,7 +39,7 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
                 // PDA 扫码输入区
                 BarcodeTextField(
                     onBarcodeScanned = { viewModel.scanOnline(it.trim()) },
-                    label = "输入料号(>14位)",
+                    label = "扫描料号条码",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
@@ -62,7 +62,7 @@ fun OnlineScreen(onBack: () -> Unit, viewModel: OnlineViewModel = viewModel()) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Column(Modifier.padding(12.dp)) {
                             Text("${order.orderNo} | ${order.productName}", style = MaterialTheme.typography.titleSmall)
-                            Text("条码须>14位，扣动扫码枪扳机逐袋扫描", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            Text("扣动扫码枪扳机逐袋扫描", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                     }
                 }

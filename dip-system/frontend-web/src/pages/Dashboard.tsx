@@ -4,24 +4,36 @@ import api from '../lib/api';
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
   const [error, setError] = useState(false);
+  const [lines, setLines] = useState<any[]>([]);
+  const [selectedLine, setSelectedLine] = useState<number | null>(null);
 
-  const fetchStats = useCallback(() => {
+  const fetchStats = useCallback((lineId?: number | null) => {
     setError(false);
-    api.get('/dashboard/stats').then(r => setStats(r.data)).catch(() => setError(true));
+    const params = lineId ? `?line_id=${lineId}` : '';
+    api.get(`/dashboard/stats${params}`).then(r => setStats(r.data)).catch(() => setError(true));
   }, []);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => {
+    api.get('/lines').then(r => setLines(r.data?.items || r.data || [])).catch(() => {});
+    fetchStats(null);
+  }, [fetchStats]);
+
+  const onLineChange = (val: string) => {
+    const id = val ? Number(val) : null;
+    setSelectedLine(id);
+    fetchStats(id);
+  };
 
   if (error) return (
     <div className="flex flex-col items-center justify-center h-64 gap-4">
       <p className="text-red-500">数据加载失败</p>
-      <button onClick={fetchStats} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">重试</button>
+      <button onClick={() => fetchStats(selectedLine)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">重试</button>
     </div>
   );
 
   if (!stats) return <p className="text-gray-400">加载中...</p>;
 
-  const { order_stats, prep_stats, prep_rate, inventory_alerts, today_ops, refill_stats, changeover_stats } = stats;
+  const { order_stats, prep_stats, prep_rate, prep_today_done, inventory_alerts, today_ops, refill_stats, changeover_stats } = stats;
 
   return (
     <div>
@@ -30,29 +42,55 @@ export default function Dashboard() {
       {/* Row 1: Production Status */}
       <div className="grid grid-cols-3 gap-6 mb-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-bold mb-4">生产订单</h2>
-          <div className="grid grid-cols-2 gap-4 text-center">
-            {[
-              { label: '待备料', value: order_stats.pending, color: 'text-yellow-600' },
-              { label: '待上线', value: order_stats.in_progress, color: 'text-blue-600' },
-              { label: '已完成', value: order_stats.done, color: 'text-green-600' },
-              { label: '总订单', value: order_stats.total, color: 'text-gray-500' },
-            ].map(s => (
-              <div key={s.label}>
-                <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>
-                <div className="text-xs text-gray-500 mt-1">{s.label}</div>
-              </div>
-            ))}
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">生产订单</h2>
+            <select
+              value={selectedLine ?? ''}
+              onChange={e => onLineChange(e.target.value)}
+              className="text-sm border rounded px-2 py-1 text-gray-600"
+            >
+              <option value="">全部产线</option>
+              {lines.map((l: any) => (
+                <option key={l.id} value={l.id}>{l.line_name || l.lineName}</option>
+              ))}
+            </select>
           </div>
+          <table className="w-full text-sm text-center">
+            <thead>
+              <tr className="text-gray-500 text-xs">
+                <th className="pb-2 text-left"></th>
+                <th className="pb-2">待备料</th>
+                <th className="pb-2">待上线</th>
+                <th className="pb-2">已完成</th>
+                <th className="pb-2">完成率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: '本日', data: order_stats.today },
+                { label: '本周', data: order_stats.week },
+                { label: '本月', data: order_stats.month },
+              ].map(row => (
+                <tr key={row.label} className="border-t">
+                  <td className="py-2 text-left font-medium text-gray-700">{row.label}</td>
+                  <td className="py-2 text-yellow-600 font-bold">{row.data.pending}</td>
+                  <td className="py-2 text-blue-600 font-bold">{row.data.in_progress}</td>
+                  <td className="py-2 text-green-600 font-bold">{row.data.done}</td>
+                  <td className="py-2 text-gray-600">{row.data.rate}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold mb-4">备料状态</h2>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-4 text-center">
             {[
               { label: '待备料', value: prep_stats.pending, color: 'text-yellow-600' },
               { label: '已完成', value: prep_stats.done, color: 'text-green-600' },
               { label: '完成率', value: `${prep_rate}%`, color: 'text-blue-600' },
+              { label: '今日完成', value: prep_today_done, color: 'text-purple-600' },
             ].map(s => (
               <div key={s.label}>
                 <div className={`text-3xl font-bold ${s.color}`}>{s.value}</div>

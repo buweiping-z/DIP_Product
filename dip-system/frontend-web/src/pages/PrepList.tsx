@@ -47,7 +47,7 @@ export default function PrepList() {
           <th className="p-3">齐套结果</th>
           <th className="p-3 w-20">操作</th>
         </tr></thead>
-        <tbody>{data.map(p => (
+        <tbody>{data.filter(p => p.status !== 3).map(p => (
           <tr key={p.id} className="border-t hover:bg-gray-50">
             <td className="p-3 font-mono text-sm">{p.order_no}</td>
             <td className="p-3">{p.production_order_id}</td>

@@ -39,6 +39,9 @@ class AppRepository(val context: Context) {
     suspend fun checkKitComplete(prepId: Int) = call { api.checkKitComplete(prepId) }
     suspend fun finishPrep(prepId: Int, detailIds: List<Int>) = call { api.finishPrep(prepId, FinishPrepRequest(detailIds)) }
 
+    // Dashboard
+    suspend fun getMobileCounts() = call { api.getMobileCounts() }
+
     // Refill
     suspend fun getActiveRefillBatches() = call { api.getActiveRefillBatches() }
     suspend fun getRefillBatchDetail(batchNo: String) = call { api.getRefillBatchDetail(batchNo) }
@@ -136,4 +139,7 @@ class AppRepository(val context: Context) {
     suspend fun completeChangeoverBatch(batchNo: String): Result<Unit> {
         return call { api.completeChangeoverBatch(batchNo) }.map { }
     }
+
+    // Call Material 叫料
+    suspend fun callMaterial(items: List<CallMaterialItem>) = call { api.callMaterial(CallMaterialRequest(items)) }
 }

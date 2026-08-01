@@ -9,20 +9,42 @@ public class DashboardService
 
     public DashboardService(AppDbContext db) { _db = db; }
 
-    public async Task<object> GetStatsAsync()
+    private static DateTime BeijingTodayStart()
     {
-        var today = DateTime.UtcNow.Date;
-        var todayStart = today;
+        var beijingNow = DateTime.UtcNow.AddHours(8);
+        return beijingNow.Date.AddHours(-8);
+    }
 
-        // 订单状态分布
-        var orders = await _db.ProductionOrders.Where(o => !o.IsDeleted).ToListAsync();
+    private static DateTime BeijingWeekStart()
+    {
+        var beijingNow = DateTime.UtcNow.AddHours(8);
+        var dayOfWeek = (int)beijingNow.DayOfWeek;
+        var daysSinceMonday = dayOfWeek == 0 ? 6 : dayOfWeek - 1;
+        return beijingNow.Date.AddDays(-daysSinceMonday).AddHours(-8);
+    }
+
+    private static DateTime BeijingMonthStart()
+    {
+        var beijingNow = DateTime.UtcNow.AddHours(8);
+        return new DateTime(beijingNow.Year, beijingNow.Month, 1).AddHours(-8);
+    }
+
+    public async Task<object> GetStatsAsync(long? lineId = null)
+    {
+        var todayStart = BeijingTodayStart();
+        var weekStart = BeijingWeekStart();
+        var monthStart = BeijingMonthStart();
+
+        // 订单状态分布（按时间段）
+        var orderQuery = _db.ProductionOrders.Where(o => !o.IsDeleted);
+        if (lineId.HasValue)
+            orderQuery = orderQuery.Where(o => o.LineId == lineId.Value);
+        var orders = await orderQuery.ToListAsync();
         var orderStats = new
         {
-            total = orders.Count,
-            pending = orders.Count(o => o.Status == 1),
-            in_progress = orders.Count(o => o.Status == 2),
-            done = orders.Count(o => o.Status == 3),
-            cancelled = orders.Count(o => o.Status == 4)
+            today = BuildOrderPeriod(orders, todayStart),
+            week = BuildOrderPeriod(orders, weekStart),
+            month = BuildOrderPeriod(orders, monthStart)
         };
 
         // 备料统计
@@ -35,10 +57,12 @@ public class DashboardService
             cancelled = preps.Count(p => p.Status == 3)
         };
 
-        // 备料完成率
-        var prepRate = prepStats.total > 0
-            ? Math.Round((double)prepStats.done / prepStats.total * 100, 1)
+        var prepEffective = prepStats.total - prepStats.cancelled;
+        var prepRate = prepEffective > 0
+            ? Math.Round((double)prepStats.done / prepEffective * 100, 1)
             : 0;
+
+        var prepTodayDone = preps.Count(p => p.Status == 2 && p.CompletedAt >= todayStart);
 
         // 库存预警（基于可用数量，非总数量）
         var lowStock = await _db.Inventories
@@ -54,12 +78,12 @@ public class DashboardService
         var inventoryAlerts = new { low_stock = lowStock, out_of_stock = outOfStock, pending_replenish = pendingReplenish, pending_replenish_items = pendingReplenishItems };
 
         // 今日操作统计
-        var todayPrepScans = await _db.PrepScanRecords
-            .CountAsync(s => s.CreatedAt >= todayStart);
+        var todayPrepScans = await _db.PrepDetails
+            .CountAsync(d => !d.IsDeleted && d.Status == 2 && d.UpdatedAt >= todayStart);
         var todayReturns = await _db.ReturnOrders
             .CountAsync(r => !r.IsDeleted && r.CreatedAt >= todayStart);
-        var todayShelving = await _db.ShelvingBatches
-            .CountAsync(b => !b.IsDeleted && b.ConfirmedAt >= todayStart);
+        var todayShelving = await _db.MaterialShelvings
+            .CountAsync(m => !m.IsDeleted && m.LoadedAt >= todayStart);
 
         var todayOps = new
         {
@@ -72,7 +96,7 @@ public class DashboardService
         var refillRecords = await _db.RefillRecords
             .Where(r => !r.IsDeleted && !string.IsNullOrEmpty(r.BatchNo)).ToListAsync();
         var refillBatches = refillRecords.GroupBy(r => r.BatchNo).Select(g => new {
-            done = g.Any(r => r.Step >= 3),  // 有一笔核对完成即算完成
+            done = g.Any(r => r.Step >= 3),
             today = g.Any(r => r.CreatedAt >= todayStart)
         }).ToList();
         var refillStats = new {
@@ -94,11 +118,43 @@ public class DashboardService
             order_stats = orderStats,
             prep_stats = prepStats,
             prep_rate = prepRate,
+            prep_today_done = prepTodayDone,
             inventory_alerts = inventoryAlerts,
             today_ops = todayOps,
             refill_stats = refillStats,
             changeover_stats = changeoverStats
         };
+    }
+
+    private static object BuildOrderPeriod(List<DIP.Api.Models.ProductionOrder> orders, DateTime since)
+    {
+        var period = orders.Where(o => o.CreatedAt >= since).ToList();
+        var pending = period.Count(o => o.Status == 1);
+        var inProgress = period.Count(o => o.Status == 2);
+        var done = period.Count(o => o.Status == 3);
+        var effective = pending + inProgress + done;
+        var rate = effective > 0 ? Math.Round((double)done / effective * 100, 1) : 0;
+        return new { pending, in_progress = inProgress, done, rate };
+    }
+
+    public async Task<object> GetMobileCountsAsync()
+    {
+        var prep = await _db.PrepOrders.CountAsync(p => !p.IsDeleted && p.Status == 1);
+        var online = await _db.ProductionOrders.CountAsync(o => !o.IsDeleted && o.Status == 2);
+        var substitute = await _db.SubstituteOrders.CountAsync(o => !o.IsDeleted && o.Status == 1);
+        var outbound = await _db.OutboundOrders.CountAsync(o => !o.IsDeleted && o.Status == 1);
+        var changeover = await _db.ChangeoverBatches.CountAsync(b => !b.IsDeleted && b.Status == 1);
+
+        // 活跃补料批次：有批次号且该批次无 step>=3 的记录
+        var refill = await _db.RefillRecords
+            .Where(r => !r.IsDeleted && r.BatchNo != "")
+            .GroupBy(r => r.BatchNo)
+            .Where(g => !g.Any(r => r.Step >= 3))
+            .CountAsync();
+
+        var callMaterial = await _db.MaterialRequests.CountAsync(r => !r.IsDeleted && r.Status == 0);
+
+        return new { prep, refill, substitute, online, outbound, changeover, call_material = callMaterial };
     }
 
     public async Task<List<object>> GetPendingReplenishItemsAsync()

@@ -34,7 +34,7 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _auth.LogoutAsync(userId, req.RefreshToken);
         return Ok(ApiResponse.Ok(null, "已登出"));
     }
@@ -43,7 +43,7 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Me()
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         var user = await _auth.GetCurrentUserAsync(userId);
         if (user == null) return Ok(ApiResponse.Fail(401, "用户不存在"));
         return Ok(ApiResponse.Ok(new

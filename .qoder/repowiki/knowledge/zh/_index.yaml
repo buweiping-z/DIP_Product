@@ -1,0 +1,44 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: master
+nodes_managed: true
+exported_at: "2026-08-01T01:12:13Z"
+modules:
+    "":
+        dir_name: DIP 物料管理系统（全栈项目根）
+        title: DIP 物料管理系统（全栈项目根）
+        scope:
+            - CLAUDE.md
+            - .gitignore
+            - readme.txt
+            - xgyj.txt
+            - 产品BOM导入模板.xlsx
+            - 库存导入模板.xlsx
+        source_files: []
+        children:
+            - docs_and_specs
+            - mobile_android
+        depends_on: []
+        related_to: []
+    docs_and_specs:
+        dir_name: DIP物料管理系统文档与设计规范
+        title: DIP物料管理系统文档与设计规范
+        scope:
+            - docs/
+            - memory/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: mobile_android
+    mobile_android:
+        dir_name: DIP 物料管理 Android 客户端（Material3 + Compose）
+        title: DIP 物料管理 Android 客户端（Material3 + Compose）
+        scope:
+            - mobile-android/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: docs_and_specs

@@ -25,14 +25,14 @@ public class ReturnController : ControllerBase {
     [HttpPost("scan")]
     public async Task<IActionResult> ScanReturn([FromBody] ScanReturnRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.ScanReturnAsync(req.Barcode, req.TargetLocationId, userId)));
     }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Dictionary<string, object?> data)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(data, userId), "退料单创建成功"));
     }
 
@@ -43,7 +43,7 @@ public class ReturnController : ControllerBase {
     [HttpPost("batch-finish")]
     public async Task<IActionResult> BatchFinish([FromBody] BatchFinishRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.BatchFinishAsync(req.TargetLocationId, req.Items, userId), "退料完成"));
     }
 }

@@ -203,3 +203,127 @@ npm run dev
 - `react-useeffect-closure-stale-guard` — useEffect 闭包过期 + 缺少守卫导致请求风暴
 - `compose-state-snapshot-npe` — Compose 重组中 !! 导致的 NPE 崩溃
 - `inline_changeovers` 表补建 `operator_id`、`batch_no` 列
+
+### 2026-07-25 — 安全加固 + 性能优化 + 代码质量
+
+**JWT Claim 字面量统一（全局）：**
+- 17 个 Controller + JwtTokenService + RequireManagerFilter：`ClaimTypes.NameIdentifier` → `"nameid"`，`ClaimTypes.Name` → `"unique_name"`
+- 根因：`MapInboundClaims = false` 禁用了 URI→短名映射，写入用长 URI 读取用短名导致 null
+
+**清空业务数据重写（SystemController）：**
+- EF Core 25+ DbSet RemoveRange → Raw SQL `DELETE FROM` + `SET FOREIGN_KEY_CHECKS=0`
+- 扩展 leader 角色权限；补充 inventory_lots / inline_changeovers / changeover_batches / refresh_tokens
+
+**BOM 导入/导出去重（OrderService）：**
+- 导入：同批次 GroupBy(productName, productionMonth, partNo) 保留最后一条
+- 导出：HashSet 去重 + 删除 DB 重复记录
+
+**前端 Blob 下载修复（OrderList.tsx）：**
+- Axios 拦截器已 unwrap response.data，`res.data` → 直接用返回值
+
+**修复的 Bug：**
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 67 | 部分接口 401 / userId null | ClaimTypes URI 与字面量不匹配 | 统一 "nameid"/"unique_name" |
+| 68 | 清空数据超时/外键报错 | RemoveRange 全表加载+外键顺序 | Raw SQL + FOREIGN_KEY_CHECKS=0 |
+| 69 | BOM 导入重复料号 | Excel 重复行未去重 | GroupBy 保留最后 |
+
+### 2026-07-27 — 订单页卡死修复 + 冻结归零修复 + 状态过滤
+
+**订单管理页面卡死（再次修复）：**
+- 根因1：组件卸载后未取消的 API 请求仍在更新 state，StrictMode 双挂载+快速导航时竞争状态更新导致浏览器卡死
+- 根因2：Enter 键搜索与防抖定时器竞态——Enter 立即发请求，300ms 后定时器又发一次，两次竞争更新同一 state
+- 修复1：新增 `mountedRef` + `abortRef`，所有 `setData/setTotal/setLoading` 前检查 `mountedRef.current`；请求发起时取消上一个未完成的 AbortController
+- 修复2：抽取 `refreshList(p)` 统一入口——先清防抖定时器再发请求；所有按钮（页码/清除/Enter/新建/编辑/删除/导入）统一走此入口
+- 文件：`frontend-web/src/pages/OrderList.tsx`
+
+**冻结数量归零（EF Core ChangeTracker.Clear()）：**
+- 根因：`RefreezeActiveOrdersAsync` 中 Phase 1 解冻后 `SaveChangesAsync` 提交，但 `_db.ChangeTracker.Clear()` 缺失。Phase 2 查询返回 ChangeTracker 缓存的过期实体快照，`FreezeCoreAsync` 对 `FrozenQty` 的修改在最终 `SaveChangesAsync` 时被 EF Core 跳过
+- 注意：此修复在 2026-07-25 已写入全局 CLAUDE.md 和 memory，但**代码中只加了注释未加实际调用**
+- 修复：Phase 1 `SaveChangesAsync` 后加 `_db.ChangeTracker.Clear()`，同时在 `UpdatePlanQtyAsync` 同样模式处也补上
+- `CancelAsync` 增加防御：单个 prep 取消失败不中断整批（加 try/catch）
+- 文件：`api/Services/OrderService.cs`
+
+**已撤销/已取消状态默认隐藏：**
+- 前端 + 后端双重过滤：`PrepService.GetListAsync` 默认排除 status=3；`OrderService.GetListAsync` 默认排除 status=4
+- 前端 `PrepList.tsx` / `OrderList.tsx` 表格渲染加客户端兜底过滤
+- 文件：`api/Services/PrepService.cs`、`api/Services/OrderService.cs`、`frontend-web/src/pages/PrepList.tsx`、`frontend-web/src/pages/OrderList.tsx`
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 71 | 订单管理页面卡死 | 未取消的 API 请求 + 防抖竞态竞争 state | AbortController + mountedRef + refreshList 统一入口 |
+| 72 | 增删订单后冻结数量归零 | ChangeTracker 跨阶段实体快照污染（Clear 只写注释未写代码） | SaveChanges 后加 `_db.ChangeTracker.Clear()` |
+| 73 | 备料管理显示已撤销记录 | 前后端均未过滤 status=3 | 后端默认排除 + 前端客户端过滤 |
+| 74 | 订单管理显示已取消记录 | 前后端均未过滤 status=4 | 后端默认排除 + 前端客户端过滤 |
+| 75 | 上线完成扣光其他订单冻结 | ConfirmAsync 按 PartId 扣减全部 FrozenQty | 按 RequiredQty 扣减 + Refreeze |
+| 76 | BOM 导入结果不显示 | fetchData 的 setMsg('') 清掉导入成功消息 | 去掉 fetchData 的 setMsg('') |
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `react-abortcontroller-mountedref-cleanup` — React 组件卸载后 AbortController + mountedRef 防止过期状态更新
+- `changetracker-clear-must-be-code-not-comment` — ChangeTracker.Clear() 必须实际调用，只写注释无效
+- `online-deduct-by-requiredqty-not-all-frozen` — 上线完成扣减应按 RequiredQty 不按全部 FrozenQty
+
+### 2026-07-28 — Axios 401 死循环修复 + 发布便携包
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 77 | 订单管理页面卡死后 F5/其他操作均无法恢复，DevTools 显示 401→refresh 200→retry→401 无限循环 | API 拦截器中 `doRefresh()` 返回 true 但新 token 无效，重试仍 401，`_retry=true` 跳过整个 if 块永不登出 | 将 `localStorage.clear()` + 跳转登录移到 `!_retry` 判断外部；新增 `axios.isCancel()` 防 abort 误杀 |
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `axios-retry-401-dead-loop` — Axios 401 拦截器 refresh 成功但重试仍 401 时死循环永不登出
+
+### 2026-07-29 — 叫料功能（新模块）+ 补料扫码放宽 + 订单重复创建修复 + 权限控制
+
+**叫料功能（新模块 — 三端完整实现）：**
+- 数据库：`material_requests` 表（id, part_no, part_id, location_code, status, operator_id, created_at）
+- 后端：`MaterialRequest` 实体 + `MaterialRequestService`（批量创建/分页搜索/改状态/删除/导出）+ `MaterialRequestController`（5 端点）
+- API 端点：`POST/GET/PUT/DELETE/GET export` → `/api/v1/call-material`
+- 手机端：`CallMaterialScreen` + `CallMaterialViewModel`，流程：扫料号（>14去尾4）→ API 匹配部品→查库存库位→加入列表（去重）→上传→自动回首页
+- 网页端：`CallMaterialList.tsx` 管理页面（搜索/分页/改状态/删除/导出 Excel）+ 侧边栏菜单 + 仪表盘计数
+- 文件：新增 7 个，修改 10 个
+
+**补料扫码放开位数限制：**
+- `RefillViewModel.togglePart` 移除 `>14位` 限制，改为 >14 去尾 4、≤14 取全部后匹配
+- `RefillScreen` 步骤 1 提示文字 `"扫部品条码(>14位)"` → `"扫部品条码"`
+- 文件：`RefillViewModel.kt`、`RefillScreen.kt`
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 78 | 新建订单双击出现两份 | `handleSubmit` 无防重复点击，两次点击并发 POST | `useRef` 同步锁 + `useState` UI 反馈 + button disabled |
+| 79 | 叫料管理页面报"服务器内部错误" | LINQ `Select` 中 `CreatedAt.ToString()` EF Core 无法翻译为 SQL | 直接传 `DateTime`，由 JsonConverter 格式化 |
+| 80 | 叫料管理页面报 Table 'materialrequests' doesn't exist | `MaterialRequest` 实体缺 `[Table]`，EF Core 推导表名无下划线 | 加 `[Table("material_requests")]` |
+| 81 | 手机端编译失败 `'return' is prohibited here` | 嵌套 `fold` 中裸 `return` Kotlin 不允许 | 改为 `return@fold` |
+
+**网页端权限控制：**
+- 订单管理：编辑/删除按钮仅 admin/leader 可见（详情/打印不受限）
+- 物料管理：编辑/删除仅 admin/leader 可见
+- 库位管理：编辑/删除仅 admin/leader 可见
+- 叫料管理：撤销/恢复/删除仅 admin/leader 可见（标记已处理/取消不受限）
+- 文件：`OrderList.tsx`、`PartList.tsx`、`LocationList.tsx`、`CallMaterialList.tsx`
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `react-submit-double-click-guard` — React `useRef` 防重复提交
+- `efcore-table-attribute-missing` — 实体类必须加 `[Table]` 显式指定表名
+- `efcore-linq-select-tostring-cannot-translate` — LINQ Select 中不能调 C# 方法
+- `kotlin-nested-fold-return-label` — 嵌套 fold 必须用带标签 return
+
+### 2026-07-29 — BOM 清单向前查找规则 + 已选产品表加 BOM 月份列
+
+**BOM 向前查找规则：**
+- 将 `GetBomWithFallbackAsync` 从"精确匹配→NULL兜底"改为"精确匹配→向前≤查找→NULL兜底"
+- 提取 `GetEffectiveBomMonthAsync` 辅助方法，三步确定有效月份
+- `GetProductNamesAsync` 同步改为内存中按同样规则筛选，确保产品下拉列表一致
+- 所有调用方（新建/编辑订单、BOM预览、产品下拉）自动生效
+- 文件：`api/Services/OrderService.cs`
+
+**已选产品表格加 BOM 月份列：**
+- 后端 `GetProductNamesAsync` 返回新增 `bom_month` 字段
+- 前端 `SelectedProduct` 接口 + `addProduct` + `openEdit` 同步补上该字段
+- "已选产品"表新增"BOM表月份"列（产品名和BOM料号数之间），显示具体月份或"通用"
+- 文件：`OrderService.cs`、`OrderList.tsx`

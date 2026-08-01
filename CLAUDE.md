@@ -437,3 +437,102 @@ dotnet publish -c Release --self-contained -r win-x64
 - `efcore-changetracker-clear-between-phases` — ChangeTracker.Clear() 跨 SaveChanges 清空快照
 - `android-broadcastreceiver-instance-lifecycle-dedup` — BroadcastReceiver 实例字段不保留
 - `homeviewmodel-parallel-api-loading` — Kotlin async/awaitAll 并行加载模式
+
+---
+
+### 2026-07-25 — JWT Claim 字面量统一 + 清空数据重写 + BOM 去重 + Blob 下载修复
+
+**JWT ClaimTypes 字面量统一（17 个 Controller + JwtTokenService + RequireManagerFilter）：**
+- 问题：`MapInboundClaims = false` 时，.NET 不做 URI→短名映射，`ClaimTypes.NameIdentifier`（长 URI）写入 Token 后读取 `FindFirstValue("nameid")` 返回 null
+- 修复：Token 生成统一用字面量 `"nameid"` / `"unique_name"`，所有 Controller 读取也统一用字面量
+- 教训：**一旦设置 `MapInboundClaims = false`，Claim 的写入和读取必须用完全相同的字面量字符串**
+
+**SystemController.ClearData 重写（EF Core RemoveRange → Raw SQL）：**
+- 问题：25+ 个 DbSet `RemoveRange` 加载全部实体到内存，外键约束顺序出错，新增表容易遗漏
+- 修复：改为 `SET FOREIGN_KEY_CHECKS=0` + 逐表 `DELETE FROM` + `SET FOREIGN_KEY_CHECKS=1`
+- 同时扩展 leader 角色权限 + 补充 inventory_lots / inline_changeovers / changeover_batches / refresh_tokens 表
+- 教训：**批量清空大表用 Raw SQL 比 EF Core RemoveRange 快 10x+ 且不受外键顺序约束**
+
+**BOM 导入/导出去重：**
+- 问题：同一 Excel 内或数据库中存在 (产品名, 生产月份, 料号) 重复记录，导入叠加、导出重复
+- 修复：导入时 `GroupBy` 同 key 保留最后一条；导出时 HashSet 去重保留第一条 + 删除 DB 多余记录
+- 教训：**Excel 导入必须做幂等去重，用户可能重复粘贴或文件本身有重复行**
+
+**前端 Blob 下载 res.data 修复：**
+- 问题：Axios 响应拦截器已 unwrap `response.data`，返回的直接是 Blob，再取 `.data` 是 undefined
+- 修复：`const blob = await api.get(...)` 直接使用，不再 `res.data`
+- 教训：**如果 Axios 拦截器 return response.data，调用方拿到的就是 data 本身，不能再 .data**
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 67 | 部分接口 401 / userId 为 null | MapInboundClaims=false 后 ClaimTypes URI 与字面量不匹配 | 全部改为 "nameid"/"unique_name" 字面量 |
+| 68 | 清空业务数据超时/外键报错 | EF Core RemoveRange 加载全表+外键顺序 | Raw SQL DELETE + FOREIGN_KEY_CHECKS=0 |
+| 69 | BOM 导入后出现重复料号 | Excel 内有重复行，导入未去重 | GroupBy(product,month,partNo) 保留最后 |
+| 70 | 导出产品 BOM 下载空文件 | Axios 拦截器已 unwrap，res.data 是 undefined | 直接用返回值作为 Blob |
+
+**新增避坑经验（全局 CLAUDE.md + memory）：**
+- `dotnet-claim-literal-vs-claimtypes-uri` — MapInboundClaims=false 时必须用字面量，不能用 ClaimTypes 常量
+- `efcore-bulk-delete-raw-sql` — 批量清空大表用 Raw SQL + FOREIGN_KEY_CHECKS，不用 RemoveRange
+- `excel-import-idempotent-dedup` — Excel 导入必须 GroupBy 去重，保证幂等
+- `axios-interceptor-unwrap-blob` — 拦截器 return response.data 后调用方不能再 .data
+
+### 2026-07-27 — 订单卡死再修复 + 冻结归零 + 状态过滤
+
+**订单管理页面卡死（第二次修复）：**
+- 上次修复（2026-07-25）解决了 token 竞态和双重请求，但组件卸载后过期状态更新仍导致卡死
+- 新增 `mountedRef` + `abortRef`：每次请求前取消上一个未完成的 AbortController；所有 setState 前检查 mountedRef
+- 新增 `refreshList(p)` 统一入口：先清防抖定时器再发请求，消除 Enter/定时器竞态
+- 文件：`dip-system/frontend-web/src/pages/OrderList.tsx`
+
+**冻结数量归零（ChangeTracker.Clear 未实际执行）：**
+- 2026-07-25 修复中**只加了注释未加实际代码调用**
+- `RefreezeActiveOrdersAsync` Phase 1 后注释写"ChangeTracker 已清空"，但 `_db.ChangeTracker.Clear()` 不存在
+- 加上 Clear() 调用；同时 `UpdatePlanQtyAsync` 同样模式也补上
+- `CancelAsync` 中单个 prep 取消失败不再中断整批
+- 文件：`dip-system/api/Services/OrderService.cs`
+
+**已撤销/已取消状态默认隐藏：**
+- 后端 `GetListAsync` + 前端表格渲染双重过滤 status=3/4
+- 文件：`PrepService.cs`、`OrderService.cs`、`PrepList.tsx`、`OrderList.tsx`
+
+**修复的 Bug：**
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 71 | 订单管理页面卡死 | 未取消 API 请求 + 防抖竞态 | AbortController + mountedRef + refreshList |
+| 72 | 增删订单后冻结归零 | ChangeTracker.Clear 只写注释未写代码 | 实际加上 Clear() 调用 |
+| 73 | 备料管理显示已撤销 | 未过滤 status=3 | 后端默认排除 + 前端兜底 |
+| 74 | 订单管理显示已取消 | 未过滤 status=4 | 后端默认排除 + 前端兜底 |
+| 75 | 上线完成扣光其他订单冻结 | ConfirmAsync 按 PartId 扣减全部 FrozenQty | 按 RequiredQty 扣减 + Refreeze |
+| 76 | BOM 导入结果不显示 | fetchData 的 setMsg('') 清掉消息 | 去掉 fetchData 的 setMsg('') |
+
+**新增避坑经验（memory）：**
+- `react-abortcontroller-mountedref-cleanup` — AbortController + mountedRef 防过期 setState
+- `changetracker-clear-must-be-code-not-comment` — 经验文档化 ≠ 代码已修复
+- `online-deduct-by-requiredqty-not-all-frozen` — 上线完成扣减应按 RequiredQty 不按全部 FrozenQty
+
+---
+
+### 2026-07-30 性能优化 + 日报功能
+
+**新建订单弹框优化：**
+- 前端 `openCreate` 改为非阻塞：点击立刻弹框，产品搜索框显示"加载中"并禁用，产线/月份/优先级可先操作
+- 后端 `GetProductNamesAsync` 加 `IMemoryCache` 按月份 key 缓存（5 分钟过期）
+- BOM 导入/去重操作后主动 `InvalidateProductCache()` 清除缓存
+- 文件：`OrderList.tsx`、`OrderService.cs`、`Program.cs`
+
+**生产作业日报 PDF：**
+- 新增 `ReportService.cs`：聚合当日订单/备料/上线/异常/换线/库存数据，QuestPDF 排版生成 A4 PDF
+- 新增 `ReportController.cs`：`GET /api/v1/report/daily?date=YYYY-MM-DD` 返回 PDF 文件流
+- 前端订单页顶部新增"生成日报"按钮 → 日期选择弹窗 → 下载 PDF
+- 新增依赖：QuestPDF 2025.7.0 + 嵌入中文字体 `api/Fonts/simhei.ttf`
+- 报告结构：总览指标 → 订单明细 → 异常明细 → 换线明细 → 汇总统计
+
+**技术栈变更：**
+
+| 层 | 新增 |
+|---|------|
+| 后端 | QuestPDF 2025.7.0（PDF 生成）、IMemoryCache（产品列表缓存） |
+| 字体 | `api/Fonts/simhei.ttf`（黑体，CopyToOutput） |

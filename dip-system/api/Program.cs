@@ -77,6 +77,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 // 4. 注册服务
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<PartService>();
@@ -91,11 +92,13 @@ builder.Services.AddScoped<StockCountService>();
 builder.Services.AddScoped<AbnormalService>();
 builder.Services.AddScoped<TransferService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<ReportService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<OutboundService>();
 builder.Services.AddScoped<RefillService>();
 builder.Services.AddScoped<SubstituteService>();
 builder.Services.AddScoped<ChangeoverService>();
+builder.Services.AddScoped<MaterialRequestService>();
 
 // 5. Controllers + Swagger
 builder.Services.AddControllers(options =>
@@ -147,12 +150,42 @@ using (var scope = app.Services.CreateScope())
         "created_by BIGINT NULL, " +
         "updated_by BIGINT NULL, " +
         "is_deleted TINYINT NOT NULL DEFAULT 0)");
+    // 叫料申请表
+    await db.Database.ExecuteSqlRawAsync(
+        "CREATE TABLE IF NOT EXISTS material_requests (" +
+        "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+        "part_no VARCHAR(200) NOT NULL, " +
+        "part_id BIGINT NOT NULL DEFAULT 0, " +
+        "location_code VARCHAR(500) NOT NULL DEFAULT '', " +
+        "status INT NOT NULL DEFAULT 0, " +
+        "operator_id BIGINT NOT NULL DEFAULT 0, " +
+        "tenant_id BIGINT NOT NULL DEFAULT 0, " +
+        "created_at DATETIME NOT NULL, " +
+        "updated_at DATETIME NULL, " +
+        "created_by BIGINT NULL, " +
+        "updated_by BIGINT NULL, " +
+        "is_deleted TINYINT NOT NULL DEFAULT 0)");
     // 补建后期新增列
     try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE inline_changeovers ADD COLUMN batch_no VARCHAR(50) NOT NULL DEFAULT ''"); } catch { }
     try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE inline_changeovers ADD COLUMN operator_id BIGINT NOT NULL DEFAULT 0"); } catch { }
     // 生连：生产月份 BOM 版本管理
     try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE product_boms ADD COLUMN production_month VARCHAR(7) NULL"); } catch { }
     try { await db.Database.ExecuteSqlRawAsync("ALTER TABLE production_orders ADD COLUMN production_month VARCHAR(7) NULL"); } catch { }
+
+    // 机种-生连索引表（加速新建订单产品列表加载）
+    await db.Database.ExecuteSqlRawAsync(
+        "CREATE TABLE IF NOT EXISTS product_month_index (" +
+        "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+        "product_name VARCHAR(200) NOT NULL, " +
+        "production_month VARCHAR(7) NULL, " +
+        "bom_count INT NOT NULL DEFAULT 0, " +
+        "tenant_id BIGINT NOT NULL DEFAULT 0, " +
+        "created_at DATETIME NOT NULL, " +
+        "updated_at DATETIME NULL, " +
+        "created_by BIGINT NULL, " +
+        "updated_by BIGINT NULL, " +
+        "is_deleted TINYINT NOT NULL DEFAULT 0, " +
+        "INDEX idx_pmi_name_month (product_name, production_month))");
 
     // 清理软删除残留 + 已取消订单：旧版 DeleteAsync 只标记 IsDeleted=1/Status=4，现改为硬删除
     async Task HardDeleteOrderAsync(AppDbContext ctx, long orderId)
@@ -218,6 +251,24 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"已清理 {cancelledOrders.Count} 条已取消订单及关联数据");
     }
 }
+
+// 启动时重建机种-生连索引 + 每小时定时刷新
+using (var scope = app.Services.CreateScope())
+{
+    var orderSvc = scope.ServiceProvider.GetRequiredService<OrderService>();
+    await orderSvc.RebuildProductMonthIndexAsync();
+    Console.WriteLine("机种-生连索引表已重建");
+}
+var indexTimer = new System.Threading.Timer(async _ =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<OrderService>();
+        await svc.RebuildProductMonthIndexAsync();
+    }
+    catch { /* 定时刷新失败不影响业务 */ }
+}, null, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
 
 // 6. 中间件管道
 app.UseCors("AllowAll");

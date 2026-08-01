@@ -64,13 +64,21 @@ instance.interceptors.response.use(
     return body;
   },
   async (error) => {
-    if (error.response?.status === 401 && !error.config._retry) {
-      error.config._retry = true;
-      if (await doRefresh()) {
-        error.config.headers.Authorization = `Bearer ${localStorage.getItem('token')}`;
-        return instance(error.config);
+    if (error.response?.status === 401) {
+      // CanceledError（被 abort 的请求）不处理，直接 reject
+      if (axios.isCancel(error)) return Promise.reject(error);
+
+      if (!error.config._retry) {
+        error.config._retry = true;
+        if (await doRefresh()) {
+          error.config.headers.Authorization = `Bearer ${localStorage.getItem('token')}`;
+          return instance(error.config);
+        }
       }
-      localStorage.clear(); window.location.href = '/login';
+      // refresh 失败 或 refresh 成功后重试仍 401 → 强制登出
+      localStorage.clear();
+      window.location.href = '/login';
+      return Promise.reject(error);
     }
     return Promise.reject(error);
   }

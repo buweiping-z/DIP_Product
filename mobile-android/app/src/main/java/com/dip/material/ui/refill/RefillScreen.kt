@@ -49,7 +49,7 @@ fun RefillScreen(onBack: () -> Unit, viewModel: RefillViewModel = viewModel()) {
             // PDA 扫码输入区（key=scanSession 确保相机离开后协程重拉）
             if (state.step >= 1) {
                 val hint = when (state.step) {
-                    1 -> "扫部品条码(>14位)"
+                    1 -> "扫部品条码"
                     2 -> "扫部品条码(>14位)"
                     3 -> if (state.boxPartNo.isEmpty()) "扫料盒(≤14位)" else "扫部品(>14位且含料盒号)"
                     else -> ""

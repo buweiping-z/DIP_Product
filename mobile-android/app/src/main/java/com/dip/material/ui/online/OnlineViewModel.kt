@@ -82,13 +82,6 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
     fun scanOnline(barcode: String) {
         val trimmed = barcode.trim()
 
-        // 料号必须 >14 位
-        if (trimmed.length <= 14) {
-            ScanSoundManager.playError()
-            _state.update { it.copy(scanMsg = "无效料号(${trimmed.length}位)，需>14位") }
-            return
-        }
-
         val partNo = parsePartNo(trimmed)
         val s = _state.value
 
@@ -113,36 +106,18 @@ class OnlineViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         _state.update { it.copy(scannedCounts = newCounts, scanMsg = "已确认: $partNo", allDone = allDone) }
+
+        // 立即提交服务端持久化
+        viewModelScope.launch {
+            repo.confirmOnline(detailId = match.id.toLong(), barcode = trimmed, quantity = 1.0)
+                .onFailure { e -> _state.update { it.copy(scanMsg = "提交失败: ${e.message}") } }
+        }
     }
 
     fun clearSelection() {
-        val s = _state.value
-        val initialCounts = s.initialScannedCounts
-
-        // 只计算本次新扫的增量（当前累计 - 进入时已有），避免重复提交历史已确认数
-        val newScans = s.scannedCounts
-            .filter { (detailId, count) -> count > (initialCounts[detailId] ?: 0) }
-            .mapValues { (detailId, count) -> count - (initialCounts[detailId] ?: 0) }
-
         _state.update { it.copy(selectedOrder = null, details = emptyList(), allDone = false,
             scannedCounts = emptyMap(), initialScannedCounts = emptyMap()) }
-
-        // 先提交本次新增的确认 → 等后台处理完（最后一条会把订单改为已完成）
-        // → 再刷新订单列表，确保已完成订单不再显示
-        viewModelScope.launch {
-            if (newScans.isNotEmpty()) {
-                // 并行提交本次新增确认，所有 confirmOnline 独立不互相依赖
-                val results = newScans.map { (detailId, count) ->
-                    async { detailId to repo.confirmOnline(detailId = detailId.toLong(), barcode = "", quantity = count.toDouble()) }
-                }.awaitAll()
-                val failures = results.mapNotNull { (id, r) -> if (r.isFailure) "明细$id: ${r.exceptionOrNull()?.message}" else null }
-                if (failures.isNotEmpty()) {
-                    _state.update { it.copy(scanMsg = "提交失败: ${failures.joinToString("; ")}") }
-                    return@launch
-                }
-            }
-            loadOrders()
-        }
+        viewModelScope.launch { loadOrders() }
     }
     fun clearMsg() { _state.update { it.copy(scanMsg = null) } }
 }

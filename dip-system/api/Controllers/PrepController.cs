@@ -42,7 +42,7 @@ public class PrepController : ControllerBase {
     [HttpPost("{id}/scan")]
     public async Task<IActionResult> ScanPrep(long id, [FromBody] ScanPrepRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         var result = await _svc.ScanPrepAsync(id, req.Barcode, req.DetailId, userId);
         return Ok(ApiResponse.Ok(result, "备料扫描完成"));
     }
@@ -50,7 +50,7 @@ public class PrepController : ControllerBase {
     [HttpPost("{id}/finish")]
     public async Task<IActionResult> FinishPrep(long id, [FromBody] FinishPrepRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.FinishPrepAsync(id, req.DetailIds, userId);
         return Ok(ApiResponse.Ok(null, "备料完成"));
     }
@@ -58,7 +58,7 @@ public class PrepController : ControllerBase {
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> Cancel(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.CancelAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "备料单已撤销"));
     }

@@ -25,14 +25,14 @@ public class TransferController : ControllerBase {
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Dictionary<string, object?> data)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(data, userId), "调拨单创建成功"));
     }
 
     [HttpPost("{id}/execute")]
     public async Task<IActionResult> Execute(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.ExecuteAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "调拨已执行"));
     }
@@ -40,7 +40,7 @@ public class TransferController : ControllerBase {
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> Cancel(long id)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.CancelAsync(id, userId);
         return Ok(ApiResponse.Ok(null, "调拨已取消"));
     }

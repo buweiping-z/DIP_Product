@@ -15,7 +15,10 @@ public class DashboardController : ControllerBase
     public DashboardController(DashboardService svc) { _svc = svc; }
 
     [HttpGet("stats")]
-    public async Task<IActionResult> GetStats() => Ok(ApiResponse.Ok(await _svc.GetStatsAsync()));
+    public async Task<IActionResult> GetStats([FromQuery] long? line_id) => Ok(ApiResponse.Ok(await _svc.GetStatsAsync(line_id)));
+
+    [HttpGet("mobile-counts")]
+    public async Task<IActionResult> GetMobileCounts() => Ok(ApiResponse.Ok(await _svc.GetMobileCountsAsync()));
 
     [HttpGet("export-replenish")]
     public async Task<IActionResult> ExportReplenish()

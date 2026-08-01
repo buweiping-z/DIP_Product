@@ -19,6 +19,7 @@ const AbnormalList = lazy(() => import('./pages/AbnormalList'));
 const OnlineList = lazy(() => import('./pages/OnlineList'));
 const RefillList = lazy(() => import('./pages/RefillList'));
 const ChangeoverList = lazy(() => import('./pages/ChangeoverList'));
+const CallMaterialList = lazy(() => import('./pages/CallMaterialList'));
 const UserList = lazy(() => import('./pages/UserList'));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="substitute" element={<Suspense fallback={<PageLoader />}><SubstituteList /></Suspense>} />
         <Route path="outbound" element={<Suspense fallback={<PageLoader />}><OutboundList /></Suspense>} />
         <Route path="changeover" element={<Suspense fallback={<PageLoader />}><ChangeoverList /></Suspense>} />
+        <Route path="call-material" element={<Suspense fallback={<PageLoader />}><CallMaterialList /></Suspense>} />
         <Route path="stockcount" element={<Suspense fallback={<PageLoader />}><StockCountList /></Suspense>} />
         <Route path="abnormal" element={<Suspense fallback={<PageLoader />}><AbnormalList /></Suspense>} />
         <Route path="users" element={<Suspense fallback={<PageLoader />}><UserList /></Suspense>} />

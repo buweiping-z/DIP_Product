@@ -12,6 +12,7 @@ interface ProductInfo {
   product_name: string;
   bom_count: number;
   bom_signature: string;
+  bom_month: string;
 }
 
 interface SelectedProduct {
@@ -19,12 +20,14 @@ interface SelectedProduct {
   product_name: string;
   bom_count: number;
   bom_signature: string;
+  bom_month: string;
   plan_qty: number;
 }
 
 export default function OrderList() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isManager, setIsManager] = useState(false);
   const [msg, setMsg] = useState('');
   const [showDialog, setShowDialog] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -33,9 +36,11 @@ export default function OrderList() {
   const [lines, setLines] = useState<any[]>([]);
   const [bomItems, setBomItems] = useState<any[]>([]);
   const [form, setForm] = useState({ line_id: 1, product_name: '', plan_qty: 1, priority: 2, production_month: '' });
+  const [submitting, setSubmitting] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [bomPreview, setBomPreview] = useState<any[]>([]);
   const [detailData, setDetailData] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
@@ -43,6 +48,11 @@ export default function OrderList() {
   const [planQtyEditId, setPlanQtyEditId] = useState<number | null>(null);
   const [planQtyProducts, setPlanQtyProducts] = useState<any[]>([]);
   const [planQtyOrderInfo, setPlanQtyOrderInfo] = useState<any>(null);
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [reportDate, setReportDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
 
   // 搜索分页状态
   const [filterProductName, setFilterProductName] = useState('');
@@ -51,8 +61,15 @@ export default function OrderList() {
   const [total, setTotal] = useState(0);
   const timerRef = useRef<any>(null);
   const skipDebounce = useRef(true);
+  const mountedRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
+  const submittingRef = useRef(false);  // 防止重复提交
 
   const fetchData = useCallback(async (p?: number, pn?: string, pm?: string) => {
+    // 取消上一个未完成的请求，避免竞态
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     try {
       const params: any = { page: p ?? page, page_size: PAGE_SIZE };
@@ -60,16 +77,37 @@ export default function OrderList() {
       const month = pm !== undefined ? pm : filterMonth;
       if (name) params.product_name = name;
       if (month) params.production_month = month;
-      const res = await api.get('/orders', { params });
+      const res = await api.get('/orders', { params, signal: controller.signal });
+      if (!mountedRef.current) return;
       setData(res.data?.items || []);
       setTotal(res.data?.total || 0);
-      setMsg('');
     } catch {
+      if (!mountedRef.current) return;
       setMsg('加载失败，请刷新重试');
-    } finally { setLoading(false); }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
   }, [page, filterProductName, filterMonth]);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    skipDebounce.current = true;
+    fetchData();
+    return () => {
+      mountedRef.current = false;
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  // 加载用户权限
+  useEffect(() => {
+    api.get('/auth/me').then(r => {
+      if (r.code === 0 && r.data) {
+        const role = (r.data.role_code || '').toLowerCase();
+        setIsManager(role === 'admin' || role === 'leader');
+      }
+    }).catch(() => {});
+  }, []);
 
   // 搜索防抖（直接用 api 避免 fetchData 闭包过期）
   useEffect(() => {
@@ -79,13 +117,18 @@ export default function OrderList() {
       setPage(1);
       setLoading(true);
       try {
+        // 取消上一个未完成的请求
+        if (abortRef.current) abortRef.current.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
         const params: any = { page: 1, page_size: PAGE_SIZE };
         if (filterProductName) params.product_name = filterProductName;
         if (filterMonth) params.production_month = filterMonth;
-        const res = await api.get('/orders', { params });
+        const res = await api.get('/orders', { params, signal: controller.signal });
+        if (!mountedRef.current) return;
         setData(res.data?.items || []);
         setTotal(res.data?.total || 0);
-      } catch {} finally { setLoading(false); }
+      } catch {} finally { if (mountedRef.current) setLoading(false); }
     }, 300);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [filterProductName, filterMonth]);
@@ -94,7 +137,7 @@ export default function OrderList() {
     try {
       const m = month !== undefined ? month : form.production_month;
       const [pRes, lRes] = await Promise.all([
-        api.get('/orders/products', { params: { production_month: m || undefined } }),
+        api.get('/orders/product-index', { params: { production_month: m || undefined } }),
         api.get('/lines')
       ]);
       setProducts((pRes.data || []) as ProductInfo[]);
@@ -106,33 +149,38 @@ export default function OrderList() {
   // 月份变更时重新加载产品列表
   const reloadProducts = async (month: string) => {
     try {
-      const res = await api.get('/orders/products', { params: { production_month: month || undefined } });
+      const res = await api.get('/orders/product-index', { params: { production_month: month || undefined } });
       setProducts((res.data || []) as ProductInfo[]);
     } catch {}
   };
 
-  const openCreate = async () => {
+  const openCreate = () => {
     setEditId(null);
     setBomItems([]);
     setSelectedProducts([]);
     setProductSearch('');
+    submittingRef.current = false;
     const now = new Date();
     const thisMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const loadedLines = await loadMeta(thisMonth);
-    setForm({ line_id: loadedLines[0]?.id || 1, product_name: '', plan_qty: 1, priority: 2, production_month: thisMonth });
+    setForm({ line_id: 1, product_name: '', plan_qty: 1, priority: 2, production_month: thisMonth });
     setShowDialog(true);
+    setProductsLoading(true);
+    loadMeta(thisMonth).then(loadedLines => {
+      setForm(f => ({ ...f, line_id: loadedLines[0]?.id || f.line_id }));
+    }).finally(() => setProductsLoading(false));
   };
 
   const openEdit = async (order: any) => {
     setEditId(order.id);
     setSelectedProducts([]);
     setProductSearch('');
+    submittingRef.current = false;  // 重置提交锁
     setForm({ line_id: order.line_id, product_name: order.product_name, plan_qty: order.plan_qty, priority: order.priority, production_month: order.production_month || '' });
 
     // 并行加载所有数据（用局部变量，避免 React state 闭包陷阱）
     try {
       const [pRes, lRes, bomRes, detailRes] = await Promise.all([
-        api.get('/orders/products', { params: { production_month: order.production_month || undefined } }),
+        api.get('/orders/product-index', { params: { production_month: order.production_month || undefined } }),
         api.get('/lines'),
         api.get(`/orders/${order.id}/bom-status`),
         api.get(`/orders/${order.id}/details`)
@@ -144,10 +192,16 @@ export default function OrderList() {
       // 用局部变量 prods 而非 state，确保读到最新值
       const prods = (pRes.data || []) as ProductInfo[];
       const ops = detailRes.data?.order_products || [];
-      const enriched = ops.map((op: any) => {
+      // 编辑模式：对已选产品补查 bom_signature
+      const enriched = await Promise.all(ops.map(async (op: any) => {
         const prod = prods.find((p: ProductInfo) => p.product_name === op.product_name);
-        return { ...op, bom_count: prod?.bom_count || 0, bom_signature: prod?.bom_signature || '' };
-      });
+        let bom_signature = '';
+        try {
+          const bRes = await api.get('/orders/product-bom', { params: { name: op.product_name, month: order.production_month || undefined } });
+          bom_signature = (bRes.data || []).map((b: any) => b.part_no).sort().join(',');
+        } catch {}
+        return { ...op, bom_count: prod?.bom_count || 0, bom_signature, bom_month: prod?.bom_month || '' };
+      }));
       setSelectedProducts(enriched);
     } catch { setBomItems([]); }
     setShowDialog(true);
@@ -168,14 +222,24 @@ export default function OrderList() {
     (p.bom_count !== undefined && p.product_name.includes(productSearch))
   );
 
-  // 添加产品到表格
-  const addProduct = (prod: ProductInfo) => {
+  // 添加产品到表格（选中后异步获取 bom_signature）
+  const addProduct = async (prod: ProductInfo) => {
     if (selectedProducts.some(sp => sp.product_name === prod.product_name)) return; // 已存在
+    let bom_signature = prod.bom_signature || '';
+    // 索引表不含 signature，选中后补查
+    if (!bom_signature) {
+      try {
+        const res = await api.get('/orders/product-bom', { params: { name: prod.product_name, month: form.production_month || undefined } });
+        const partNos = (res.data || []).map((b: any) => b.part_no).sort();
+        bom_signature = partNos.join(',');
+      } catch {}
+    }
     setSelectedProducts([...selectedProducts, {
       product_id: prod.product_id,
       product_name: prod.product_name,
       bom_count: prod.bom_count,
-      bom_signature: prod.bom_signature,
+      bom_signature,
+      bom_month: prod.bom_month,
       plan_qty: 1
     }]);
     setProductSearch('');
@@ -234,10 +298,18 @@ export default function OrderList() {
     return () => { cancelled = true; };
   }, [showDialog, selectedProducts, editId, form.production_month]);
 
+  const refreshList = (p: number) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setPage(p); fetchData(p);
+  };
+
   const handleSubmit = async () => {
+    if (submittingRef.current) return;  // 防止重复提交（双击/快速连点）
     if (selectedProducts.length === 0) return alert('请至少选择一个产品');
     if (editId && !allSameBomSignature) return alert('编辑后的产品 BOM 不一致，请删除当前订单并重新创建');
 
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const payload = {
         line_id: form.line_id,
@@ -258,20 +330,24 @@ export default function OrderList() {
         showToast(`订单创建成功！已生成 ${total} 个订单`, 'success');
       }
       setShowDialog(false);
-      setPage(1); fetchData(1);
-    } catch {}
+      refreshList(1);
+    } catch {} finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
 
   const handleStatusChange = async (id: number, status: number) => {
-    try { await api.put(`/orders/${id}/status`, { status }); fetchData(page); } catch {}
+    try { await api.put(`/orders/${id}/status`, { status }); refreshList(page); } catch {}
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm('确认删除此订单？')) return;
-    try { await api.delete(`/orders/${id}`); fetchData(page); } catch {}
+    try { await api.delete(`/orders/${id}`); refreshList(page); } catch {}
   };
 
   const openPlanQtyEdit = async (order: any) => {
+    submittingRef.current = false;  // 重置提交锁
     try {
       const res = await api.get(`/orders/${order.id}/details`);
       if (res.code === 0 && res.data) {
@@ -288,9 +364,12 @@ export default function OrderList() {
   };
 
   const handlePlanQtySubmit = async () => {
+    if (submittingRef.current) return;  // 防止重复提交
     if (planQtyProducts.length === 0) return;
     const changed = planQtyProducts.filter((p: any) => p.plan_qty !== p.old_plan_qty);
     if (changed.length === 0) { setShowPlanQtyDialog(false); return; }
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       await api.put(`/orders/${planQtyEditId}/plan-qty`, {
         products: planQtyProducts.map((p: any) => ({
@@ -300,8 +379,12 @@ export default function OrderList() {
       });
       showToast('计划数量已更新，库存已同步调整', 'success');
       setShowPlanQtyDialog(false);
-      setPage(1); fetchData(1);
+      refreshList(1);
     } catch (err: any) { alert(err.message || '操作失败'); }
+    finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
 
   const handlePrint = async (id: number) => {
@@ -404,7 +487,7 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
     const fd = new FormData(); fd.append('file', file);
     try {
       const res = await api.post('/orders/import-bom', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
-      setMsg(`BOM 导入成功: ${res.data?.count || 0} 条`); setPage(1); fetchData(1);
+      setMsg(`BOM 导入成功: ${res.data?.count || 0} 条`); refreshList(1);
     } catch (err: any) { setMsg('导入失败: ' + (err.response?.data?.message || err.message)); }
     e.target.value = '';
   };
@@ -429,6 +512,7 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
             } catch { /* handled by interceptor */ }
           }} className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">导出产品BOM</button>
           <a href="/api/v1/orders/bom-template" className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">下载BOM模板</a>
+          <button onClick={() => setShowReportDialog(true)} className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">生成日报</button>
           <input ref={bomFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleBomImport} />
         </div>
       </div>
@@ -439,14 +523,16 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
         <div>
           <label className="block text-sm text-gray-600 mb-1">产品名称</label>
           <input className="border rounded px-3 py-1.5 w-48" placeholder="模糊搜索产品名称" value={filterProductName}
-            onChange={e => setFilterProductName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (() => { setPage(1); fetchData(1); })()} />
+            onChange={e => setFilterProductName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') refreshList(1); }} />
         </div>
         <div>
           <label className="block text-sm text-gray-600 mb-1">生连</label>
           <input className="border rounded px-3 py-1.5 w-36" placeholder="YYYY_MM" value={filterMonth}
-            onChange={e => setFilterMonth(e.target.value)} onKeyDown={e => e.key === 'Enter' && (() => { setPage(1); fetchData(1); })()} />
+            onChange={e => setFilterMonth(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') refreshList(1); }} />
         </div>
-        <button onClick={() => { setFilterProductName(''); setFilterMonth(''); }}
+        <button onClick={() => { setFilterProductName(''); setFilterMonth(''); refreshList(1); }}
           className="text-gray-500 px-3 py-1.5 hover:text-gray-700">清除</button>
       </div>
 
@@ -457,7 +543,7 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
             <th className="p-3">订单号</th><th className="p-3">产品名称</th><th className="p-3">生连</th><th className="p-3">计划数量</th>
             <th className="p-3">优先级</th><th className="p-3">状态</th><th className="p-3">创建时间</th><th className="p-3 w-56">操作</th>
           </tr></thead>
-          <tbody>{data.map(o => (
+          <tbody>{data.filter(o => o.status !== 4).map(o => (
             <tr key={o.id} className="border-t hover:bg-gray-50">
               <td className="p-3 text-blue-600 font-mono text-sm">{o.order_no}</td>
               <td className="p-3">{o.product_name}</td>
@@ -469,12 +555,12 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
               <td className="p-3 space-x-1 whitespace-nowrap">
                 <button onClick={() => fetchDetail(o.id)} className="text-blue-600 hover:text-blue-800 text-sm">详情</button>
                 <button onClick={() => handlePrint(o.id)} className="text-blue-600 hover:text-blue-800 text-sm">打印</button>
-                {o.status !== 3 && o.status !== 4 ? (
+                {o.status !== 3 && o.status !== 4 && isManager ? (
                   <>
                     <button onClick={() => openEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
                     <button onClick={() => handleDelete(o.id)} className="text-red-500 hover:text-red-700 text-sm">删除</button>
                   </>
-                ) : o.status === 3 && (
+                ) : o.status === 3 && isManager && (
                   <button onClick={() => openPlanQtyEdit(o)} className="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
                 )}
               </td>
@@ -490,12 +576,12 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
               <span>共 <strong>{total}</strong> 条记录，第 <strong>{page}</strong> / <strong>{totalPages || 1}</strong> 页</span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { const p = page - 1; setPage(p); fetchData(p); }}
+                  onClick={() => { const p = page - 1; refreshList(p); }}
                   disabled={page <= 1}
                   className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
                 >上一页</button>
                 <button
-                  onClick={() => { const p = page + 1; setPage(p); fetchData(p); }}
+                  onClick={() => { const p = page + 1; refreshList(p); }}
                   disabled={page >= totalPages}
                   className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
                 >下一页</button>
@@ -554,8 +640,9 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
               <div className="relative">
                 <input
                   type="text"
-                  className="w-full border p-2 rounded"
-                  placeholder="输入产品名称模糊搜索..."
+                  className="w-full border p-2 rounded disabled:bg-gray-100 disabled:text-gray-400"
+                  placeholder={productsLoading ? '产品列表加载中...' : '输入产品名称模糊搜索...'}
+                  disabled={productsLoading}
                   value={productSearch}
                   onChange={e => { setProductSearch(e.target.value); setShowDropdown(true); }}
                   onFocus={() => setShowDropdown(true)}
@@ -594,6 +681,7 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
                 <table className="w-full border text-sm">
                   <thead><tr className="bg-gray-100">
                     <th className="p-2 text-left">产品</th>
+                    <th className="p-2 text-center">BOM表月份</th>
                     <th className="p-2 text-center">BOM料号数</th>
                     <th className="p-2 text-right">计划数量</th>
                     <th className="p-2 text-center">操作</th>
@@ -602,6 +690,7 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
                     {selectedProducts.map((sp, idx) => (
                       <tr key={idx} className={`border-t ${editId && !allSameBomSignature && sp.bom_count !== selectedProducts[0]?.bom_count ? 'bg-red-50' : ''}`}>
                         <td className="p-2">{sp.product_name}</td>
+                        <td className="p-2 text-center text-sm text-gray-500">{sp.bom_month}</td>
                         <td className="p-2 text-center">{sp.bom_count}</td>
                         <td className="p-2 text-right">
                           <input
@@ -699,8 +788,9 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
 
             <div className="flex justify-end gap-3">
               <button onClick={() => setShowDialog(false)} className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
-              <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                {editId ? '保存修改' : '确认创建'}
+              <button onClick={handleSubmit} disabled={submitting}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                {submitting ? '提交中...' : (editId ? '保存修改' : '确认创建')}
               </button>
             </div>
           </div>
@@ -846,8 +936,38 @@ ${(d.prep_orders || []).length > 0 ? `<table><thead><tr><th>备料单号</th><th
             <div className="flex justify-end gap-3">
               <button onClick={() => setShowPlanQtyDialog(false)}
                 className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
-              <button onClick={handlePlanQtySubmit}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认调整</button>
+              <button onClick={handlePlanQtySubmit} disabled={submitting}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                {submitting ? '提交中...' : '确认调整'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 日报生成对话框 */}
+      {showReportDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[360px]">
+            <h2 className="text-lg font-bold mb-4">生成生产作业日报</h2>
+            <label className="block text-sm font-medium mb-1">报告日期</label>
+            <input type="date" className="w-full border p-2 rounded mb-4" value={reportDate}
+              onChange={e => setReportDate(e.target.value)} />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowReportDialog(false)}
+                className="px-4 py-2 border rounded hover:bg-gray-50">取消</button>
+              <button onClick={async () => {
+                try {
+                  const blob = await api.get('/report/daily', { params: { date: reportDate }, responseType: 'blob' });
+                  const url = URL.createObjectURL(blob as any);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `daily_report_${reportDate.replace(/-/g, '')}.pdf`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setShowReportDialog(false);
+                } catch { /* handled by interceptor */ }
+              }} className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">下载 PDF</button>
             </div>
           </div>
         </div>

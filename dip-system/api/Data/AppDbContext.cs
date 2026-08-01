@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<Station> Stations { get; set; }
     public DbSet<WarehouseLocation> WarehouseLocations { get; set; }
     public DbSet<ProductBom> ProductBoms { get; set; }
+    public DbSet<ProductMonthIndex> ProductMonthIndices { get; set; }
 
     // ===== 库存 =====
     public DbSet<Inventory> Inventories { get; set; }
@@ -75,6 +76,7 @@ public class AppDbContext : DbContext
 
     // ===== 补料 =====
     public DbSet<RefillRecord> RefillRecords { get; set; }
+    public DbSet<MaterialRequest> MaterialRequests { get; set; }
 
     // ===== 途中切替 =====
     public DbSet<ChangeoverBatch> ChangeoverBatches { get; set; }
@@ -98,6 +100,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Station>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<WarehouseLocation>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ProductBom>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<ProductMonthIndex>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Inventory>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<InventoryLot>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ProductionOrder>().HasQueryFilter(e => !e.IsDeleted);
@@ -136,6 +139,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Station>(e => e.ToTable("stations"));
         modelBuilder.Entity<WarehouseLocation>(e => e.ToTable("warehouse_locations"));
         modelBuilder.Entity<ProductBom>(e => e.ToTable("product_boms"));
+        modelBuilder.Entity<ProductMonthIndex>(e => e.ToTable("product_month_index"));
         modelBuilder.Entity<Inventory>(e => e.ToTable("inventories"));
         modelBuilder.Entity<InventoryLot>(e => e.ToTable("inventory_lots"));
         modelBuilder.Entity<StockMovement>(e => e.ToTable("stock_movements"));

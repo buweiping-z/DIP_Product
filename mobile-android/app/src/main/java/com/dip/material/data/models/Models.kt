@@ -228,3 +228,13 @@ data class SubstituteDetailItem(
     val quantity: Double = 0.0,
     val status: Int = 0  // 1=待确认, 2=已确认
 )
+
+// ===== Call Material 叫料 =====
+data class CallMaterialRequest(
+    val items: List<CallMaterialItem>
+)
+data class CallMaterialItem(
+    @SerializedName("part_no") val partNo: String,
+    @SerializedName("part_id") val partId: Int,
+    @SerializedName("location_code") val locationCode: String
+)

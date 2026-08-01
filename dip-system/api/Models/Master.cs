@@ -201,3 +201,18 @@ public class ProductBom : BaseEntity
     [ForeignKey(nameof(PartId))]
     public Part? Part { get; set; }
 }
+
+/// <summary>
+/// 机种-生连索引表（轻量预计算，加速新建订单产品列表加载）
+/// </summary>
+public class ProductMonthIndex : BaseEntity
+{
+    [Column("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [Column("production_month")]
+    public string? ProductionMonth { get; set; }
+
+    [Column("bom_count")]
+    public int BomCount { get; set; }
+}

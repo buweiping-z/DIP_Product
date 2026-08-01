@@ -51,7 +51,7 @@ public class InventoryController : ControllerBase
     [HttpPost("import")]
     public async Task<IActionResult> Import(IFormFile file)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms);
         var result = await _svc.ImportFromExcelAsync(ms.ToArray(), userId);
@@ -84,7 +84,7 @@ public class InventoryController : ControllerBase
     [HttpPost("substitute")]
     public async Task<IActionResult> Substitute([FromBody] SubstituteRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "1");
+        var userId = long.Parse(User.FindFirstValue("nameid") ?? "1");
         var result = await _svc.SubstituteCoreAsync(req.OriginalPartId, req.SubstitutePartId,
             req.SourceLocationId, req.TargetLocationId, req.Quantity, userId);
         return Ok(ApiResponse.Ok(result, "替代料移库已创建，待确认"));
@@ -93,7 +93,7 @@ public class InventoryController : ControllerBase
     [HttpPost("substitute/{recordId}/confirm")]
     public async Task<IActionResult> ConfirmSubstitute(long recordId)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "1");
+        var userId = long.Parse(User.FindFirstValue("nameid") ?? "1");
         await _svc.ConfirmSubstituteAsync(recordId, userId);
         return Ok(ApiResponse.Ok(null, "替代料移库已确认"));
     }

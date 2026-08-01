@@ -29,7 +29,7 @@ public class RequireManagerFilter : IAsyncActionFilter
         }
 
         var user = context.HttpContext.User;
-        var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdStr = user.FindFirstValue("nameid");
         if (string.IsNullOrEmpty(userIdStr))
         {
             context.Result = new JsonResult(ApiResponse.Fail(401, "请先登录"));

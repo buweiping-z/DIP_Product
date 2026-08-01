@@ -15,7 +15,7 @@ public class OutboundController : ControllerBase
 
     public OutboundController(OutboundService svc) { _svc = svc; }
 
-    private long GetUserId() => long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private long GetUserId() => long.Parse(User.FindFirstValue("nameid")!);
 
     [HttpGet]
     public async Task<IActionResult> GetList(

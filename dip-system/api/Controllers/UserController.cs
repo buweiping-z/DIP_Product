@@ -58,7 +58,7 @@ public class UserController : ControllerBase
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.ChangePasswordAsync(userId, req.OldPassword, req.NewPassword);
         return Ok(ApiResponse.Ok(null, "密码已修改"));
     }

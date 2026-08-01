@@ -37,10 +37,10 @@ export default function OnlineList() {
     setEndDate('');
   };
 
-  // 前端按订单号过滤（后端暂未加该筛选参数）
-  const filtered = prodOrderNo
-    ? data.filter((c: any) => c.prod_order_no?.includes(prodOrderNo) || c.prep_order_no?.includes(prodOrderNo))
-    : data;
+  // 前端按订单号过滤（后端暂未加该筛选参数）+ 排除已撤销备料单的记录
+  const filtered = data
+    .filter((c: any) => c.prep_status !== 3)
+    .filter((c: any) => !prodOrderNo || c.prod_order_no?.includes(prodOrderNo) || c.prep_order_no?.includes(prodOrderNo));
 
   return (
     <div>

@@ -26,14 +26,14 @@ public class AbnormalController : ControllerBase {
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Dictionary<string, object?> data)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.CreateAsync(data, userId), "异常记录已创建"));
     }
 
     [HttpPost("{id}/handle")]
     public async Task<IActionResult> Handle(long id, [FromBody] HandleAbnormalRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         await _svc.HandleAsync(id, userId, req.HandleNote);
         return Ok(ApiResponse.Ok(null, "已处理"));
     }

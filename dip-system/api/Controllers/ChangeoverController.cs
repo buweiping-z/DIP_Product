@@ -15,7 +15,7 @@ public class ChangeoverController : ControllerBase
     public ChangeoverController(ChangeoverService svc) { _svc = svc; }
 
     private long CurrentUserId =>
-        long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        long.Parse(User.FindFirstValue("nameid")!);
 
     /// <summary>根据产品名称或订单号获取 BOM</summary>
     [HttpGet("bom")]

@@ -32,7 +32,7 @@ public class StockCountController : ControllerBase {
     [HttpPost("import")]
     public async Task<IActionResult> Import(IFormFile file)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms);
         var result = await _svc.ImportResultAsync(ms.ToArray(), userId);

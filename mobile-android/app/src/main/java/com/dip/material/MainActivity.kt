@@ -26,6 +26,7 @@ import com.dip.material.ui.online.OnlineScreen
 import com.dip.material.ui.substitute.SubstituteScreen
 import com.dip.material.ui.outbound.OutboundScreen
 import com.dip.material.ui.changeover.ChangeoverScreen
+import com.dip.material.ui.callmaterial.CallMaterialScreen
 import androidx.lifecycle.lifecycleScope
 import com.dip.material.data.network.RetrofitClient
 import com.dip.material.data.network.TokenHolder
@@ -117,6 +118,7 @@ fun AppNavHost() {
             onNavigateToSubstitute = { navController.navigate("substitute") },
             onNavigateToOutbound = { navController.navigate("outbound") },
             onNavigateToChangeover = { navController.navigate("changeover") },
+            onNavigateToCallMaterial = { navController.navigate("callmaterial") },
             onLogout = {
                 scope.launch {
                     TokenHolder.clear()
@@ -133,5 +135,6 @@ fun AppNavHost() {
         composable("substitute") { SubstituteScreen(onBack = { navController.popBackStack() }) }
         composable("outbound") { OutboundScreen(onBack = { navController.popBackStack() }) }
         composable("changeover") { ChangeoverScreen(onBack = { navController.popBackStack() }) }
+        composable("callmaterial") { CallMaterialScreen(onBack = { navController.popBackStack() }) }
     }
 }

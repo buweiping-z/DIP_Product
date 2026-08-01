@@ -39,14 +39,14 @@ public class RefillController : ControllerBase
     [HttpPost("batch-start")]
     public async Task<IActionResult> BatchStart([FromBody] RefillBatchStartRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.BatchStartAsync(req.Items, req.BatchNo, userId)));
     }
 
     [HttpPost("scan")]
     public async Task<IActionResult> Scan([FromBody] RefillScanRequest req)
     {
-        var userId = long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = long.Parse(User.FindFirstValue("nameid")!);
         return Ok(ApiResponse.Ok(await _svc.ScanAsync(
             req.PrepDetailId, req.PrepOrderId, req.PartNo, req.PartName,
             req.LocationCode, req.Barcode, req.BatchNo, req.Step, userId)));
